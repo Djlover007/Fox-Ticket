@@ -65,7 +65,11 @@ var REPO = "Djlover007/Fox-Ticket";
 var LABEL = "de.fox.ticket.check";
 var $ = function (id) { return document.getElementById(id); };
 var CAP = window.Capacitor;
-var BR = CAP && ((CAP.Plugins && CAP.Plugins.BackgroundRunner) || (CAP.registerPlugin && CAP.isNativePlatform && CAP.isNativePlatform() ? CAP.registerPlugin("BackgroundRunner") : null));
+var BR = CAP && CAP.nativePromise ? {
+  dispatchEvent: function (o) { return CAP.nativePromise("BackgroundRunner", "dispatchEvent", o); },
+  checkPermissions: function () { return CAP.nativePromise("BackgroundRunner", "checkPermissions", {}); },
+  requestPermissions: function (o) { return CAP.nativePromise("BackgroundRunner", "requestPermissions", o); }
+} : null;
 var state = { watch: [], last: null };
 
 function call(event, details) {
