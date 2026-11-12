@@ -570,14 +570,7 @@ public class TicketChecker {
                     r.put("changed", before != null && !before.equals(now));
                     String cartKey = "cart:" + key;
                     long lastCart = known.optLong(cartKey, 0);
-                    boolean paused = System.currentTimeMillis() - lastCart <= 10 * 60 * 1000;
-                    boolean wantCart = notify && buyable(now) && item.optBoolean("autoCart") && (manual || !paused);
-                    if (buyable(now) && item.optBoolean("autoCart") && !wantCart && paused) {
-                        String until = new java.text.SimpleDateFormat("HH:mm", Locale.GERMANY).format(new java.util.Date(lastCart + 10 * 60 * 1000));
-                        JSONObject p = new JSONObject();
-                        p.put("log", "Pause bis " + until + " Uhr (gerade erst eingelegt) – „Jetzt prüfen“ legt sofort ein");
-                        r.put("cart", p);
-                    }
+                    boolean wantCart = notify && buyable(now) && item.optBoolean("autoCart");
                     if (wantCart) {
                         newCount++;
                         known.put(cartKey, System.currentTimeMillis());
