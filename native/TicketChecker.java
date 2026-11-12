@@ -44,7 +44,7 @@ public class TicketChecker {
     static final Pattern EVENT_LINK = Pattern.compile("(?:https?:)?(?:\\\\?/\\\\?/www\\.eventim\\.de)?\\\\?/event\\\\?/([a-z0-9-]+-\\d{5,})", Pattern.CASE_INSENSITIVE);
     static final Pattern LD_JSON = Pattern.compile("<script[^>]*application/ld\\+json[^>]*>([\\s\\S]*?)</script>", Pattern.CASE_INSENSITIVE);
     static final String CART_JS =
-        "(function (qty, cats) {\n" +
+        "(function (qty, cats, strict) {\n" +
         "  function t(e) { return ((e.innerText || e.textContent || \"\") + \" \" + (e.getAttribute(\"aria-label\") || \"\") + \" \" + (e.getAttribute(\"title\") || \"\")).replace(/\\s+/g, \" \").trim().toLowerCase(); }\n" +
         "  function usable(b) { return !b.disabled && b.getAttribute(\"aria-disabled\") !== \"true\"; }\n" +
         "  function buttonsIn(root) { return [].slice.call(root.querySelectorAll(\"button,[role=button],a,input[type=submit]\")).filter(usable); }\n" +
@@ -81,29 +81,54 @@ public class TicketChecker {
         "  buttonsIn(document).forEach(function (b) { if (/alle akzeptieren|akzeptieren und schließen|alle cookies/.test(t(b))) { b.click(); log.push(\"Cookies\"); } });\n" +
         "\n" +
         "  // Bereich der gewünschten Kategorie finden (Karte, die genau eine Kategorie enthält)\n" +
+        "  function norm(x) { return String(x).toLowerCase().replace(/[^a-z0-9äöüß]+/g, \" \").trim(); }\n" +
+        "  function katCount(el) { return ((el.innerText || \"\").toLowerCase().match(/kategorie/g) || []).length; }\n" +
+        "  // Alle Kategorie-Kästen der Seite: von jedem Mengen-Zähler (− Zahl +) nach oben bis zur Karte mit genau einer Kategorie\n" +
+        "  function allBoxes() {\n" +
+        "    var out = [];\n" +
+        "    var nums = [].slice.call(document.querySelectorAll(\"body *\")).filter(function (e) {\n" +
+        "      return (e.children.length === 0 && /^\\d{1,2}$/.test(txt(e))) || (e.tagName === \"INPUT\" && /^\\d{0,2}$/.test(e.value || \"\") && e.type !== \"hidden\");\n" +
+        "    });\n" +
+        "    nums.forEach(function (num) {\n" +
+        "      var small = null;\n" +
+        "      for (var p = num.parentElement, d = 0; p && d < 4 && !small; p = p.parentElement, d++) { if (counterIn(p)) small = p; }\n" +
+        "      if (!small) return;\n" +
+        "      var box = small;\n" +
+        "      for (var el = small, d2 = 0; el && d2 < 12; el = el.parentElement, d2++) {\n" +
+        "        var k = katCount(el);\n" +
+        "        if (k > 1) break;\n" +
+        "        box = el;\n" +
+        "        if (k === 1 && el.parentElement && katCount(el.parentElement) > 1) break;\n" +
+        "      }\n" +
+        "      if (out.indexOf(box) < 0) out.push(box);\n" +
+        "    });\n" +
+        "    return out;\n" +
+        "  }\n" +
+        "  var boxes = allBoxes();\n" +
         "  function categoryBox(name) {\n" +
-        "    var n = name.toLowerCase().replace(/\\s+/g, \" \");\n" +
-        "    var head = n.split(\" - \")[0];\n" +
-        "    var all = [].slice.call(document.querySelectorAll(\"body *\"));\n" +
-        "    var label = all.filter(function (e) {\n" +
-        "      var s = (e.innerText || \"\").replace(/\\s+/g, \" \").trim().toLowerCase();\n" +
-        "      return e.children.length < 6 && s.length < 120 && (s.indexOf(n) === 0 || s.indexOf(head + \" \") === 0 || s === head);\n" +
-        "    }).pop();\n" +
-        "    var box = null;\n" +
-        "    for (var el = label, d = 0; el && d < 12; el = el.parentElement, d++) {\n" +
-        "      if (((el.innerText || \"\").toLowerCase().match(/kategorie/g) || []).length > 1) break;\n" +
-        "      if (plusIn(el)) box = el;\n" +
-        "    }\n" +
-        "    return box;\n" +
+        "    var n = norm(name);\n" +
+        "    var head = norm(name.split(\" - \")[0]);\n" +
+        "    var hit = boxes.filter(function (b) { return norm(b.innerText || \"\").indexOf(n) >= 0 && plusIn(b); })[0]\n" +
+        "      || boxes.filter(function (b) { var s = norm(b.innerText || \"\"); return (s.indexOf(head + \" \") === 0 || s === head) && plusIn(b); })[0];\n" +
+        "    return hit || null;\n" +
         "  }\n" +
         "\n" +
         "  var box = null;\n" +
         "  if (cats.length) {\n" +
         "    for (var i = 0; i < cats.length && !box; i++) {\n" +
         "      var bx = categoryBox(cats[i]);\n" +
-        "      if (bx && plusIn(bx)) { box = bx; log.push(\"Kategorie: \" + cats[i]); }\n" +
+        "      if (bx) { box = bx; log.push(\"Kategorie: \" + cats[i]); }\n" +
         "    }\n" +
-        "    if (!box) { window.__foxCart = \"gewählte Kategorie nicht kaufbar\"; return log.concat(\"gewählte Kategorie nicht kaufbar\").join(\", \"); }\n" +
+        "    if (!box && !strict) {\n" +
+        "      // Keine bestimmte Kategorie verlangt: erste kaufbare nehmen\n" +
+        "      box = boxes.filter(function (b) { return plusIn(b); })[0] || null;\n" +
+        "      if (box) log.push(\"erste kaufbare Kategorie\");\n" +
+        "    }\n" +
+        "    if (!box) {\n" +
+        "      var diag = \"gewählte Kategorie nicht gefunden (\" + boxes.length + \" Kästen: \" + boxes.slice(0, 4).map(function (b) { return norm(b.innerText || \"\").slice(0, 30); }).join(\" / \") + \")\";\n" +
+        "      window.__foxCart = diag;\n" +
+        "      return log.concat(diag).join(\", \");\n" +
+        "    }\n" +
         "  } else {\n" +
         "    var firstPlus = buttonsIn(document).filter(isPlus)[0];\n" +
         "    if (!firstPlus) {\n" +
@@ -149,7 +174,7 @@ public class TicketChecker {
         "  }\n" +
         "  step();\n" +
         "  return log.join(\", \") + \", starte\";\n" +
-        "})(__QTY__, __CATS__)\n" +
+        "})(__QTY__, __CATS__, __STRICT__)\n" +
         "";
 
     static final String CHANNEL_ALARM = "tickets_alarm";
@@ -517,7 +542,8 @@ public class TicketChecker {
 
     static String cartJs(JSONObject item, JSONArray cats) {
         int qty = Math.max(1, Math.min(10, item.optInt("qty", 1)));
-        return CART_JS.replace("__QTY__", String.valueOf(qty)).replace("__CATS__", cats == null ? "[]" : cats.toString());
+        return CART_JS.replace("__QTY__", String.valueOf(qty)).replace("__CATS__", cats == null ? "[]" : cats.toString())
+                .replace("__STRICT__", String.valueOf((item.optJSONArray("cats") != null && item.optJSONArray("cats").length() > 0) || item.optDouble("maxPrice", 0) > 0));
     }
 
     /** allowCart: bei Verfügbarkeit im selben Seitenaufruf gleich in den Warenkorb legen. */
@@ -750,7 +776,8 @@ public class TicketChecker {
     static String cartJs(JSONObject item) {
         int qty = Math.max(1, Math.min(10, item.optInt("qty", 1)));
         JSONArray sel = item.optJSONArray("cats");
-        return CART_JS.replace("__QTY__", String.valueOf(qty)).replace("__CATS__", sel == null ? "[]" : sel.toString());
+        return CART_JS.replace("__QTY__", String.valueOf(qty)).replace("__CATS__", sel == null ? "[]" : sel.toString())
+                .replace("__STRICT__", String.valueOf((item.optJSONArray("cats") != null && item.optJSONArray("cats").length() > 0) || item.optDouble("maxPrice", 0) > 0));
     }
 
     /** Versucht, Tickets automatisch in den Warenkorb zu legen (im App-Browser, dort wo du angemeldet bist). */

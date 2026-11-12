@@ -1,4 +1,4 @@
-(function (qty, cats) {
+(function (qty, cats, strict) {
   function t(e) { return ((e.innerText || e.textContent || "") + " " + (e.getAttribute("aria-label") || "") + " " + (e.getAttribute("title") || "")).replace(/\s+/g, " ").trim().toLowerCase(); }
   function usable(b) { return !b.disabled && b.getAttribute("aria-disabled") !== "true"; }
   function buttonsIn(root) { return [].slice.call(root.querySelectorAll("button,[role=button],a,input[type=submit]")).filter(usable); }
@@ -35,29 +35,54 @@
   buttonsIn(document).forEach(function (b) { if (/alle akzeptieren|akzeptieren und schließen|alle cookies/.test(t(b))) { b.click(); log.push("Cookies"); } });
 
   // Bereich der gewünschten Kategorie finden (Karte, die genau eine Kategorie enthält)
+  function norm(x) { return String(x).toLowerCase().replace(/[^a-z0-9äöüß]+/g, " ").trim(); }
+  function katCount(el) { return ((el.innerText || "").toLowerCase().match(/kategorie/g) || []).length; }
+  // Alle Kategorie-Kästen der Seite: von jedem Mengen-Zähler (− Zahl +) nach oben bis zur Karte mit genau einer Kategorie
+  function allBoxes() {
+    var out = [];
+    var nums = [].slice.call(document.querySelectorAll("body *")).filter(function (e) {
+      return (e.children.length === 0 && /^\d{1,2}$/.test(txt(e))) || (e.tagName === "INPUT" && /^\d{0,2}$/.test(e.value || "") && e.type !== "hidden");
+    });
+    nums.forEach(function (num) {
+      var small = null;
+      for (var p = num.parentElement, d = 0; p && d < 4 && !small; p = p.parentElement, d++) { if (counterIn(p)) small = p; }
+      if (!small) return;
+      var box = small;
+      for (var el = small, d2 = 0; el && d2 < 12; el = el.parentElement, d2++) {
+        var k = katCount(el);
+        if (k > 1) break;
+        box = el;
+        if (k === 1 && el.parentElement && katCount(el.parentElement) > 1) break;
+      }
+      if (out.indexOf(box) < 0) out.push(box);
+    });
+    return out;
+  }
+  var boxes = allBoxes();
   function categoryBox(name) {
-    var n = name.toLowerCase().replace(/\s+/g, " ");
-    var head = n.split(" - ")[0];
-    var all = [].slice.call(document.querySelectorAll("body *"));
-    var label = all.filter(function (e) {
-      var s = (e.innerText || "").replace(/\s+/g, " ").trim().toLowerCase();
-      return e.children.length < 6 && s.length < 120 && (s.indexOf(n) === 0 || s.indexOf(head + " ") === 0 || s === head);
-    }).pop();
-    var box = null;
-    for (var el = label, d = 0; el && d < 12; el = el.parentElement, d++) {
-      if (((el.innerText || "").toLowerCase().match(/kategorie/g) || []).length > 1) break;
-      if (plusIn(el)) box = el;
-    }
-    return box;
+    var n = norm(name);
+    var head = norm(name.split(" - ")[0]);
+    var hit = boxes.filter(function (b) { return norm(b.innerText || "").indexOf(n) >= 0 && plusIn(b); })[0]
+      || boxes.filter(function (b) { var s = norm(b.innerText || ""); return (s.indexOf(head + " ") === 0 || s === head) && plusIn(b); })[0];
+    return hit || null;
   }
 
   var box = null;
   if (cats.length) {
     for (var i = 0; i < cats.length && !box; i++) {
       var bx = categoryBox(cats[i]);
-      if (bx && plusIn(bx)) { box = bx; log.push("Kategorie: " + cats[i]); }
+      if (bx) { box = bx; log.push("Kategorie: " + cats[i]); }
     }
-    if (!box) { window.__foxCart = "gewählte Kategorie nicht kaufbar"; return log.concat("gewählte Kategorie nicht kaufbar").join(", "); }
+    if (!box && !strict) {
+      // Keine bestimmte Kategorie verlangt: erste kaufbare nehmen
+      box = boxes.filter(function (b) { return plusIn(b); })[0] || null;
+      if (box) log.push("erste kaufbare Kategorie");
+    }
+    if (!box) {
+      var diag = "gewählte Kategorie nicht gefunden (" + boxes.length + " Kästen: " + boxes.slice(0, 4).map(function (b) { return norm(b.innerText || "").slice(0, 30); }).join(" / ") + ")";
+      window.__foxCart = diag;
+      return log.concat(diag).join(", ");
+    }
   } else {
     var firstPlus = buttonsIn(document).filter(isPlus)[0];
     if (!firstPlus) {
@@ -103,4 +128,4 @@
   }
   step();
   return log.join(", ") + ", starte";
-})(__QTY__, __CATS__)
+})(__QTY__, __CATS__, __STRICT__)

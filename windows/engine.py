@@ -391,7 +391,8 @@ class Engine:
     def cart_script(self, item, cats=None):
         qty = max(1, min(10, int(item.get("qty", 1) or 1)))
         cats = cats if cats is not None else (item.get("cats") or [])
-        return self.cart_js.replace("__QTY__", str(qty)).replace("__CATS__", json.dumps(cats, ensure_ascii=False))
+        return self.cart_js.replace("__QTY__", str(qty)).replace("__CATS__", json.dumps(cats, ensure_ascii=False)).replace(
+            "__STRICT__", "true" if (item.get("cats") or item.get("maxPrice")) else "false")
 
     def _close_cart_page(self):
         """Alten Warenkorb-Tab schließen, damit sich keine Tabs ansammeln."""
