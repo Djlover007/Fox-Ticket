@@ -17,4 +17,4 @@ Bei jedem Upload auf `main` baut GitHub Actions die App und veröffentlicht sie 
 - Alle Versionen sind mit `fox-ticket.keystore` signiert, Updates lassen sich direkt drüber installieren.
 
 ## Technik
-Capacitor 7 + `@capacitor/background-runner`. Die Prüf-Logik steckt in `www/runners/runner.js`, die Oberfläche in `www/index.html`.
+Capacitor 7 + eigener Android-Code in `native/` (Prüf-Logik, WorkManager-Hintergrundjob, Benachrichtigungen, Links in Kiwi Browser öffnen). Die Oberfläche steckt in `www/index.html`.

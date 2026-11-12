@@ -1,15 +1,5 @@
 {
   "appId": "de.fox.ticket",
   "appName": "Fox Ticket",
-  "webDir": "www",
-  "plugins": {
-    "BackgroundRunner": {
-      "label": "de.fox.ticket.check",
-      "src": "runners/runner.js",
-      "event": "checkTickets",
-      "repeat": true,
-      "interval": 30,
-      "autoStart": true
-    }
-  }
+  "webDir": "www"
 }

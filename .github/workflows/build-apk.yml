@@ -35,22 +35,23 @@ jobs:
           npx capacitor-assets generate --android
           npx cap sync android
 
-      - name: Hintergrund-Plugin, Version und feste Signatur eintragen
+      - name: Eigenen Android-Code, Version und feste Signatur eintragen
         run: |
           GRADLE=android/app/build.gradle
           grep -q "versionCode 1" "$GRADLE" || { echo "versionCode nicht gefunden"; exit 1; }
           sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" "$GRADLE"
           sed -i 's/versionName "1.0"/versionName "1.${{ github.run_number }}"/' "$GRADLE"
-          grep -q "capacitor-cordova-android-plugins/src/main/libs', 'libs'" "$GRADLE" || { echo "flatDir nicht gefunden"; exit 1; }
-          sed -i "/capacitor-cordova-android-plugins\/src\/main\/libs', 'libs'/a\\        dirs '../../node_modules/@capacitor/background-runner/android/src/main/libs', 'libs'" "$GRADLE"
+          grep -q "^dependencies {" "$GRADLE" || { echo "dependencies nicht gefunden"; exit 1; }
+          sed -i '0,/^dependencies {/s//dependencies {\n    implementation "androidx.work:work-runtime:2.9.1"/' "$GRADLE"
           cp fox-ticket.keystore android/fox-ticket.keystore
           cat signing.gradle >> "$GRADLE"
-          # Standort-Rechte des Plugins werden nicht gebraucht -> entfernen
+          JAVA_DIR=android/app/src/main/java/de/fox/ticket
+          test -f "$JAVA_DIR/MainActivity.java" || { echo "MainActivity nicht gefunden"; exit 1; }
+          cp native/*.java "$JAVA_DIR/"
           MANIFEST=android/app/src/main/AndroidManifest.xml
-          sed -i 's#<manifest xmlns:android="http://schemas.android.com/apk/res/android">#<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">#' "$MANIFEST"
-          sed -i 's#</manifest>#    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />\n    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />\n</manifest>#' "$MANIFEST"
-          grep -n "background-runner" "$GRADLE"
-          cat "$MANIFEST"
+          sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />#' "$MANIFEST"
+          grep -n "work-runtime" "$GRADLE"
+          grep -n "POST_NOTIFICATIONS" "$MANIFEST"
 
       - name: APK bauen
         working-directory: android

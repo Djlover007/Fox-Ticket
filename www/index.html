@@ -8,6 +8,8 @@
 :root{--bg:#f3ecfb;--card:#fff;--text:#2a1640;--muted:#6f5d84;--accent:#7b2fd1;--fox:#f28c28;--chip:#e7daf6;--ok:#1f9d55;--warn:#c27c0e;color-scheme:light}
 @media (prefers-color-scheme:dark){:root{--bg:#150d20;--card:#22172f;--text:#f1e9fb;--muted:#a493b8;--accent:#9d5cf0;--chip:#33244a;--ok:#3ccf7a;--warn:#f0b03c;color-scheme:dark}}
 *{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+.dbg{font-size:12px;color:var(--muted);margin-top:4px}
 body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
 .wrap{max-width:560px;margin:0 auto;padding:16px}
 header{display:flex;align-items:center;gap:10px;margin:8px 4px 4px}
@@ -57,24 +59,21 @@ h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
   </div>
   <p class="err" id="err" hidden></p>
 
-  <p class="note">Die App prüft automatisch etwa alle 30 Minuten im Hintergrund und meldet sich, sobald neue Termine auf Eventim auftauchen. Android kann die Abstände verlängern, wenn der Akku-Sparmodus an ist – für Fox Ticket am besten „Akku: Nicht eingeschränkt" einstellen.<br><span id="ver"></span></p>
+  <p class="note">Die App prüft automatisch etwa alle 30 Minuten im Hintergrund (auch wenn sie geschlossen ist) und meldet sich, sobald neue Termine auf Eventim auftauchen. Android kann die Abstände verlängern, wenn der Akku-Sparmodus an ist – für Fox Ticket am besten „Akku: Nicht eingeschränkt" einstellen.<br><span id="ver"></span></p>
 </div>
 
 <script>
 var REPO = "Djlover007/Fox-Ticket";
-var LABEL = "de.fox.ticket.check";
 var $ = function (id) { return document.getElementById(id); };
 var CAP = window.Capacitor;
-var BR = CAP && CAP.nativePromise ? {
-  dispatchEvent: function (o) { return CAP.nativePromise("CapacitorBackgroundRunner", "dispatchEvent", o); },
-  checkPermissions: function () { return CAP.nativePromise("CapacitorBackgroundRunner", "checkPermissions", {}); },
-  requestPermissions: function (o) { return CAP.nativePromise("CapacitorBackgroundRunner", "requestPermissions", o); }
-} : null;
+var NATIVE = !!(CAP && CAP.nativePromise);
 var state = { watch: [], last: null };
 
-function call(event, details) {
-  if (!BR) return Promise.reject(new Error("Nur in der Android-App verfügbar"));
-  return BR.dispatchEvent({ label: LABEL, event: event, details: details || {} });
+function call(method, options, timeoutMs) {
+  if (!NATIVE) return Promise.reject(new Error("Nur in der Android-App verfügbar"));
+  var p = CAP.nativePromise("FoxTools", method, options || {});
+  if (!timeoutMs) return p;
+  return Promise.race([p, new Promise(function (_, rej) { setTimeout(function () { rej(new Error("dauert zu lange")); }, timeoutMs); })]);
 }
 
 function esc(s) {
@@ -102,27 +101,28 @@ function render() {
     var r = byUrl[w.url];
     var st = '<p class="st">Noch nicht geprüft</p>', evs = "";
     if (r) {
-      if (!r.ok) st = '<p class="st warn">⚠️ ' + esc(r.message) + "</p>";
+      if (!r.ok) st = '<p class="st warn">⚠️ ' + esc(r.message || "Fehler") + "</p>";
       else if (!r.events.length) st = '<p class="st">Keine Termine – ich passe weiter auf 👀</p>';
       else {
         st = '<p class="st ok">✅ ' + r.events.length + (r.events.length === 1 ? " Termin" : " Termine") + " gefunden</p>";
         evs = r.events.map(function (e) {
           var isNew = (r.newLinks || []).indexOf(e.link) >= 0;
           var info = [fmtDate(e.date), e.place, AV[e.availability] || e.availability].filter(Boolean).join(" · ");
-          return '<a class="ev" target="_blank" rel="noopener" href="' + esc(e.link) + '">' + esc(e.title) +
+          return '<a class="ev" href="#" data-url="' + esc(e.link) + '">' + esc(e.title) +
             (isNew ? '<span class="new">NEU</span>' : "") + (info ? "<small>" + esc(info) + "</small>" : "") + "</a>";
         }).join("");
       }
     }
     return '<div class="card"><div class="top"><b>' + esc(w.name) + '</b><button class="x" data-i="' + i + '" aria-label="Entfernen">✕</button></div>' +
-      st + evs + '<a class="open" target="_blank" rel="noopener" href="' + esc(w.url) + '">Auf Eventim öffnen ›</a></div>';
+      st + evs + (r && r.detail ? '<p class="dbg">' + esc(r.detail) + "</p>" : "") + '<a class="open" href="#" data-url="' + esc(w.url) + '">In Kiwi öffnen ›</a></div>';
   }).join("") || '<div class="card"><p class="st">Noch kein Künstler – füge unten einen Eventim-Link hinzu.</p></div>';
 }
 
 function load() {
-  return call("getState").then(function (s) {
+  return call("getState", {}, 10000).then(function (s) {
     state.watch = s.watch || [];
     state.last = s.last || null;
+    $("perm").hidden = !!s.notifications;
     render();
   }).catch(function (e) { $("last").textContent = e.message; render(); });
 }
@@ -130,18 +130,24 @@ function load() {
 function check() {
   var b = $("check");
   b.disabled = true; b.textContent = "⏳ Prüfe …";
-  call("checkNow").then(function (s) { state.last = s; render(); })
+  call("checkNow", {}, 120000).then(function (s) { state.last = s; render(); })
     .catch(function (e) { alertErr("Prüfen fehlgeschlagen: " + e.message); })
     .then(function () { b.disabled = false; b.textContent = "🔍 Jetzt prüfen"; });
 }
 
 function alertErr(t) { var e = $("err"); e.textContent = t; e.hidden = false; setTimeout(function () { e.hidden = true; }, 5000); }
 
-function saveWatch() { return call("setWatch", { watch: state.watch }).then(render); }
+function saveWatch() { render(); return call("setWatch", { watch: state.watch }, 10000).catch(function (e) { alertErr(e.message); }); }
 
 $("check").onclick = check;
-$("test").onclick = function () { call("testNotification").catch(function (e) { alertErr(e.message); }); };
+$("test").onclick = function () {
+  call("testNotification").then(function (r) {
+    if (!r.shown) { $("perm").hidden = false; alertErr("Benachrichtigungen sind noch nicht erlaubt – tippe auf „Benachrichtigungen erlauben“"); }
+  }).catch(function (e) { alertErr(e.message); });
+};
 $("list").onclick = function (ev) {
+  var a = ev.target.closest("[data-url]");
+  if (a) { ev.preventDefault(); openUrl(a.dataset.url); return; }
   var b = ev.target.closest(".x");
   if (!b) return;
   state.watch.splice(+b.dataset.i, 1);
@@ -159,19 +165,16 @@ $("addbtn").onclick = function () {
   saveWatch().then(check);
 };
 
-function perms() {
-  if (!BR) return;
-  BR.checkPermissions().then(function (p) {
-    if (p && p.notifications === "granted") { $("perm").hidden = true; return; }
-    $("perm").hidden = false;
-    BR.requestPermissions({ apis: ["notifications"] }).then(function (r) { $("perm").hidden = r && r.notifications === "granted"; }).catch(function () {});
-  }).catch(function () {});
+function openUrl(url) {
+  if (!NATIVE) { window.open(url, "_blank"); return; }
+  call("openUrl", { url: url }).catch(function (e) { alertErr(e.message); });
 }
+
 $("perm").onclick = function () {
-  BR.requestPermissions({ apis: ["notifications"] }).then(function (r) {
-    if (r && r.notifications === "granted") $("perm").hidden = true;
-    else alertErr("Bitte in den Android-Einstellungen unter Apps → Fox Ticket → Benachrichtigungen erlauben");
-  });
+  call("askNotifications").then(function (r) {
+    $("perm").hidden = !!r.granted;
+    if (!r.granted) alertErr("Bitte in den Einstellungen Benachrichtigungen für Fox Ticket einschalten");
+  }).catch(function (e) { alertErr(e.message); });
 };
 
 function checkUpdate() {
@@ -184,14 +187,17 @@ function checkUpdate() {
     if (n > cur) {
       var a = (d.assets || []).filter(function (x) { return /\.apk$/i.test(x.name); })[0];
       $("updlink").href = a ? a.browser_download_url : d.html_url;
+      $("updlink").onclick = function (ev) { ev.preventDefault(); openUrl(this.href); };
       $("upd").hidden = false;
     }
   }).catch(function () {});
 }
 
-perms();
 checkUpdate();
-load().then(function () { if (!state.last) check(); });
+load().then(function () {
+  if (!state.last) check();
+  if (NATIVE && $("perm").hidden === false) call("askNotifications").then(function (r) { $("perm").hidden = !!r.granted; }).catch(function () {});
+});
 document.addEventListener("visibilitychange", function () { if (!document.hidden) load(); });
 </script>
 </body>
