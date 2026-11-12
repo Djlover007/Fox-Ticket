@@ -277,9 +277,7 @@ public class FoxToolsPlugin extends Plugin {
             call.reject("Eintrag nicht gefunden");
             return;
         }
-        int qty = Math.max(1, Math.min(10, item.optInt("qty", 1)));
-        JSONArray sel = item.optJSONArray("cats");
-        String js = TicketChecker.CART_JS.replace("__QTY__", String.valueOf(qty)).replace("__CATS__", sel == null ? "[]" : sel.toString());
+        String js = TicketChecker.cartJs(item);
         Intent i = new Intent(getContext(), ShopActivity.class);
         i.putExtra("url", item.optString("url").split("\\?")[0]);
         i.putExtra("cartJs", js);

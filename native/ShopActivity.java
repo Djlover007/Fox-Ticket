@@ -22,6 +22,7 @@ import android.widget.TextView;
 public class ShopActivity extends Activity {
 
     private WebView web;
+    private String pendingJs;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -53,21 +54,20 @@ public class ShopActivity extends Activity {
         s.setSupportMultipleWindows(false);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
-        final String cartJs = getIntent().getStringExtra("cartJs");
+        pendingJs = getIntent().getStringExtra("cartJs");
         web.setWebViewClient(new WebViewClient() {
-            boolean done = false;
-
             @Override
             public void onPageFinished(WebView view, String u) {
-                if (cartJs == null || done) return;
-                done = true;
-                title.setText("🧪 Warenkorb-Test läuft …");
+                if (pendingJs == null) return;
+                final String cartJs = pendingJs;
+                pendingJs = null;
+                title.setText("🛒 Lege in den Warenkorb …");
                 view.postDelayed(() -> view.evaluateJavascript(cartJs, null), 5000);
                 view.postDelayed(() -> view.evaluateJavascript("window.__foxCart||''", v -> {
                     String res = v == null ? "" : v.replace("\"", "");
-                    String log = "Test " + new java.text.SimpleDateFormat("dd.MM. HH:mm", java.util.Locale.GERMANY).format(new java.util.Date()) + ": " + res;
+                    String log = "Sichtbar " + new java.text.SimpleDateFormat("dd.MM. HH:mm", java.util.Locale.GERMANY).format(new java.util.Date()) + ": " + res;
                     TicketChecker.prefs(ShopActivity.this).edit().putString("cartLog", log).apply();
-                    title.setText("🧪 " + (res.isEmpty() ? "kein Ergebnis" : res));
+                    title.setText("🛒 " + (res.isEmpty() ? "kein Ergebnis" : res));
                     android.widget.Toast.makeText(ShopActivity.this, res, android.widget.Toast.LENGTH_LONG).show();
                 }), 14000);
             }
@@ -86,6 +86,7 @@ public class ShopActivity extends Activity {
     protected void onNewIntent(android.content.Intent intent) {
         super.onNewIntent(intent);
         String url = intent.getStringExtra("url");
+        pendingJs = intent.getStringExtra("cartJs");
         if (url != null) web.loadUrl(url);
     }
 

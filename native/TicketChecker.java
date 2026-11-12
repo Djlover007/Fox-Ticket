@@ -552,7 +552,18 @@ public class TicketChecker {
                     String before = known.has(key) ? known.optString(key) : null;
                     String now = r.optString("status");
                     r.put("changed", before != null && !before.equals(now));
-                    if (notify && !now.equals(before) && (before != null || buyable(now))) {
+                    String cartKey = "cart:" + key;
+                    long lastCart = known.optLong(cartKey, 0);
+                    boolean wantCart = notify && buyable(now) && item.optBoolean("autoCart")
+                            && System.currentTimeMillis() - lastCart > 10 * 60 * 1000;
+                    if (wantCart) {
+                        newCount++;
+                        known.put(cartKey, System.currentTimeMillis());
+                        JSONObject ev = r.optJSONArray("events").optJSONObject(0);
+                        String body = statusText(now) + (r.optString("summary").isEmpty() ? "" : "\n" + r.optString("summary"));
+                        JSONObject cr = autoCart(c, item, 2000 + i, body);
+                        r.put("cart", cr);
+                    } else if (notify && !now.equals(before) && (before != null || buyable(now))) {
                         newCount++;
                         JSONObject ev = r.optJSONArray("events").optJSONObject(0);
                         String body = statusText(now) + (r.optString("summary").isEmpty() ? "" : "\n" + r.optString("summary"));
@@ -560,12 +571,8 @@ public class TicketChecker {
                             String d = ev.optString("date");
                             body = d.substring(8, 10) + "." + d.substring(5, 7) + "." + d.substring(0, 4) + " · " + body;
                         }
-                        if (buyable(now) && item.optBoolean("autoCart")) {
-                            autoCart(c, item, 2000 + i, body);
-                        } else {
-                            showNotification(c, 2000 + i, (buyable(now) ? "🎟️ Tickets! " : "ℹ️ ") + item.optString("name"), body,
-                                    buyable(now), item.optString("url"));
-                        }
+                        showNotification(c, 2000 + i, (buyable(now) ? "🎟️ Tickets! " : "ℹ️ ") + item.optString("name"), body,
+                                buyable(now), item.optString("url"));
                     }
                     known.put(key, now);
                 }
@@ -637,12 +644,17 @@ public class TicketChecker {
         return showNotification(c, id, title, body, false, null);
     }
 
+    static String cartJs(JSONObject item) {
+        int qty = Math.max(1, Math.min(10, item.optInt("qty", 1)));
+        JSONArray sel = item.optJSONArray("cats");
+        return CART_JS.replace("__QTY__", String.valueOf(qty)).replace("__CATS__", sel == null ? "[]" : sel.toString());
+    }
+
     /** Versucht, Tickets automatisch in den Warenkorb zu legen (im App-Browser, dort wo du angemeldet bist). */
     static JSONObject autoCart(Context c, JSONObject item, int id, String body) {
         String url = item.optString("url").split("\\?")[0];
         int qty = Math.max(1, Math.min(10, item.optInt("qty", 1)));
-        JSONArray sel = item.optJSONArray("cats");
-        String js = CART_JS.replace("__QTY__", String.valueOf(qty)).replace("__CATS__", sel == null ? "[]" : sel.toString());
+        String js = cartJs(item);
         WebLoader.Result w = WebLoader.load(c, url, 30000, js);
         String low = (w.text + " " + w.finalUrl).toLowerCase(Locale.GERMANY);
         String fu = w.finalUrl.toLowerCase(Locale.ROOT);
@@ -661,7 +673,7 @@ public class TicketChecker {
         if (inCart) {
             showNotification(c, id, "🛒 " + qty + " Ticket(s) im Warenkorb! Jetzt bezahlen", item.optString("name") + "\nTippen und Kauf abschließen – Warenkorb ist nur kurz reserviert!", true, "shop:" + w.finalUrl);
         } else {
-            showNotification(c, id, "🎟️ Tickets! " + item.optString("name"), body + "\nAutomatisch in den Warenkorb hat nicht geklappt – schnell selbst kaufen!", true, "shop:" + url);
+            showNotification(c, id, "🎟️ Tickets! " + item.optString("name"), body + "\nTippen → legt sie sofort in den Warenkorb!", true, "shop:" + url, js);
         }
         return res;
     }
@@ -671,6 +683,10 @@ public class TicketChecker {
      * "shop:URL" öffnet den App-Browser (angemeldet), sonst Kiwi.
      */
     public static boolean showNotification(Context c, int id, String title, String body, boolean alarm, String target) {
+        return showNotification(c, id, title, body, alarm, target, null);
+    }
+
+    public static boolean showNotification(Context c, int id, String title, String body, boolean alarm, String target, String cartJs) {
         if (!notificationsAllowed(c)) return false;
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -691,6 +707,7 @@ public class TicketChecker {
         if (target != null && target.startsWith("shop:")) {
             open = new Intent(c, ShopActivity.class);
             open.putExtra("url", target.substring(5));
+            if (cartJs != null) open.putExtra("cartJs", cartJs);
         } else if (target != null && !target.isEmpty() && isInstalled(c, "com.kiwibrowser.browser")) {
             open = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(target));
             open.setPackage("com.kiwibrowser.browser");

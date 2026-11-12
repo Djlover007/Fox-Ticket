@@ -151,6 +151,7 @@ function render() {
     return '<div class="card"><div class="top"><b>' + esc(w.name) + '</b><button class="x" data-i="' + i + '" aria-label="Entfernen">✕</button></div>' +
       st + evs + (w.url.indexOf("/event/") >= 0 ? '<label class="cart"><input type="checkbox" class="ac" data-i="' + i + '"' + (w.autoCart ? " checked" : "") + '><span>🛒 Automatisch in den Warenkorb</span><select class="qty" data-i="' + i + '">' +
         [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((w.qty || 1) === n ? " selected" : "") + ">" + n + " Ticket" + (n > 1 ? "s" : "") + "</option>"; }).join("") + "</select></label>" + '<button class="btn light testcart" data-i="' + i + '" style="margin-top:8px;padding:10px">🧪 Warenkorb-Test jetzt</button>' : "") +
+      (r && r.cart ? '<p class="dbg">🛒 ' + esc(r.cart.log) + "</p>" : "") +
       (r && r.detail ? '<p class="dbg">' + esc(r.detail) + "</p>" : "") + '<a class="open" href="#" data-url="' + esc(w.url) + '">In Kiwi öffnen ›</a></div>';
   }).join("") || '<div class="card"><p class="st">Noch kein Künstler – füge unten einen Eventim-Link hinzu.</p></div>';
 }
