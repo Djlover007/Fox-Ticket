@@ -48,7 +48,7 @@ public class WebLoader {
 
     @SuppressLint("SetJavaScriptEnabled")
     public static Result load(Context ctx, String url, long timeoutMs) {
-        return load(ctx, url, timeoutMs, null);
+        return load(ctx, url, timeoutMs, (Decider) null);
     }
 
     /** Lädt die Seite, führt (falls angegeben) ein Skript aus und wartet danach 10 s auf das Ergebnis. */
