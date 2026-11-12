@@ -59,7 +59,7 @@ h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
   </div>
   <p class="err" id="err" hidden></p>
 
-  <p class="note">Die App prüft automatisch etwa alle 30 Minuten im Hintergrund (auch wenn sie geschlossen ist) und meldet sich, sobald neue Termine auf Eventim auftauchen. Android kann die Abstände verlängern, wenn der Akku-Sparmodus an ist – für Fox Ticket am besten „Akku: Nicht eingeschränkt" einstellen.<br><span id="ver"></span></p>
+  <p class="note">Die App prüft automatisch etwa alle 30 Minuten im Hintergrund (auch wenn sie geschlossen ist) und meldet sich, sobald neue Termine auftauchen oder bei einem Termin Tickets verfügbar werden. Android kann die Abstände verlängern, wenn der Akku-Sparmodus an ist – für Fox Ticket am besten „Akku: Nicht eingeschränkt" einstellen.<br><span id="ver"></span></p>
 </div>
 
 <script>
@@ -109,6 +109,7 @@ function render() {
           var info = [fmtDate(e.date), e.place].filter(Boolean).join(" · ");
           return info ? '<a class="ev" href="#" data-url="' + esc(e.link) + '">' + esc(e.title) + "<small>" + esc(info) + "</small></a>" : "";
         }).join("");
+        if (r.summary) evs += '<p class="dbg" style="white-space:pre-line;font-size:13px;color:var(--text);margin-top:8px">' + esc(r.summary) + "</p>";
       }
       else if (!r.events.length) st = '<p class="st">Keine Termine – ich passe weiter auf 👀</p>';
       else {

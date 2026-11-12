@@ -216,6 +216,19 @@ public class TicketChecker {
     }
 
     static JSONObject checkArtist(JSONObject item) throws Exception {
+        return checkArtist(null, item);
+    }
+
+    static Page browserFetch(Context c, String url) {
+        Page p = new Page();
+        WebLoader.Result w = WebLoader.load(c, url, 35000);
+        p.error = w.error;
+        p.status = w.error == null ? 200 : -1;
+        p.text = w.html + "\n" + w.text;
+        return p;
+    }
+
+    static JSONObject checkArtist(Context c, JSONObject item) throws Exception {
         String url = item.optString("url");
         String name = item.optString("name");
         String slug = slugOf(url);
@@ -226,7 +239,7 @@ public class TicketChecker {
         JSONArray events = new JSONArray();
         String detail;
 
-        Page page = fetch(url.split("\\?")[0]);
+        Page page = c != null ? browserFetch(c, url.split("\\?")[0]) : fetch(url.split("\\?")[0]);
         if (page.error != null) {
             detail = "Eventim: " + page.error;
         } else if (looksBlocked(page)) {
@@ -264,10 +277,11 @@ public class TicketChecker {
     static String statusText(String av) {
         switch (av) {
             case "InStock": return "Tickets verfügbar";
-            case "LimitedAvailability": return "Nur noch wenige Tickets";
+            case "LimitedAvailability": return "Teilweise verfügbar";
             case "SoldOut": return "Ausverkauft";
             case "PreOrder": case "PreSale": return "Vorverkauf noch nicht gestartet";
             case "OutOfStock": return "Gerade keine Tickets";
+            case "NotAvailable": return "Zurzeit nicht verfügbar";
             default: return av.isEmpty() ? "Status unbekannt" : av;
         }
     }
@@ -276,52 +290,103 @@ public class TicketChecker {
         return "InStock".equals(av) || "LimitedAvailability".equals(av) || "OnlineOnly".equals(av);
     }
 
-    /** Einzelnen Termin prüfen: Ticketstatus erkennen. */
-    static JSONObject checkEvent(JSONObject item) throws Exception {
+    /** Liest Kategorien, Preise und Status aus dem sichtbaren Seitentext. Gibt {status, summary} zurück. */
+    static String[] analyzeEvent(String text) {
+        String[] lines = text.split("\\n");
+        List<String> clean = new ArrayList<>();
+        for (String l : lines) {
+            String t = l.trim().replaceAll("\\s+", " ");
+            if (!t.isEmpty()) clean.add(t);
+        }
+        List<String> cats = new ArrayList<>();
+        for (int i = 0; i < clean.size(); i++) {
+            if (!clean.get(i).toLowerCase(Locale.GERMANY).startsWith("kategorie")) continue;
+            StringBuilder b = new StringBuilder(clean.get(i));
+            for (int k = i + 1; k < clean.size() && k <= i + 5; k++) {
+                String n = clean.get(k);
+                String nl = n.toLowerCase(Locale.GERMANY);
+                if (nl.startsWith("kategorie") || nl.startsWith("versand") || nl.startsWith("informationen")) break;
+                if (n.length() > 60) continue;
+                if (n.matches("^[−+\\-0-9]{1,3}$")) continue;
+                b.append(" · ").append(n);
+            }
+            cats.add(b.toString());
+        }
+        String low = text.toLowerCase(Locale.GERMANY);
+        String status;
+        if (!cats.isEmpty()) {
+            int unavailable = 0;
+            boolean anyBuy = false;
+            for (String cat : cats) {
+                String cl = cat.toLowerCase(Locale.GERMANY);
+                boolean no = cl.contains("nicht verfügbar") || cl.contains("ausverkauft") || cl.contains("nicht mehr verfügbar");
+                if (no) unavailable++;
+                String rest = cl.replace("nicht mehr verfügbar", "").replace("nicht verfügbar", "");
+                if (!no || rest.contains("verfügbar") || rest.contains("warenkorb") || rest.contains("kaufen")) anyBuy = true;
+            }
+            if (!anyBuy) status = low.contains("ausverkauft") ? "SoldOut" : "NotAvailable";
+            else status = unavailable > 0 ? "LimitedAvailability" : "InStock";
+        } else if (low.contains("in den warenkorb")) {
+            status = "InStock";
+        } else if (low.contains("ausverkauft")) {
+            status = "SoldOut";
+        } else if (low.contains("zurzeit nicht verfügbar")) {
+            status = "NotAvailable";
+        } else {
+            status = "";
+        }
+        StringBuilder sum = new StringBuilder();
+        for (String cat : cats) {
+            if (sum.length() > 0) sum.append('\n');
+            sum.append(cat);
+        }
+        return new String[] { status, sum.toString() };
+    }
+
+    /** Einzelnen Termin prüfen: Ticketstatus erkennen (über unsichtbaren Browser). */
+    static JSONObject checkEvent(Context c, JSONObject item) throws Exception {
         String url = item.optString("url").split("\\?")[0];
         JSONObject r = new JSONObject();
         r.put("name", item.optString("name"));
         r.put("url", item.optString("url"));
         r.put("type", "event");
         r.put("ok", false);
-        Page page = fetch(url);
-        String detail;
         JSONArray events = new JSONArray();
         String av = "";
-        if (page.error != null) {
-            detail = "Eventim: " + page.error;
-        } else if (looksBlocked(page)) {
-            detail = "Eventim blockiert (HTTP " + page.status + ")";
-        } else if (page.status >= 200 && page.status < 400) {
+        String summary = "";
+        String detail;
+        WebLoader.Result w = WebLoader.load(c, url, 35000);
+        String low = w.text.toLowerCase(Locale.GERMANY);
+        if (w.error != null) {
+            detail = "Eventim: " + w.error;
+        } else if (low.contains("access denied") || low.contains("captcha") || low.contains("pardon our interruption")) {
+            detail = "Eventim blockiert den Browser";
+        } else {
             r.put("ok", true);
+            String[] a = analyzeEvent(w.text);
+            av = a[0];
+            summary = a[1];
             Matcher id = EVENT_LINK.matcher(url);
             String eid = id.find() ? id.group(1).toLowerCase(Locale.ROOT) : "";
-            JSONArray found = extract(page.text, eid);
+            JSONArray found = extract(w.html, eid);
             JSONObject ev = null;
             for (int i = 0; i < found.length(); i++) {
                 JSONObject f = found.optJSONObject(i);
-                if (f.has("date") && (ev == null || f.optString("link").contains(eid))) ev = f;
+                if (f.has("date") && f.optString("link").contains(eid)) ev = f;
             }
             if (ev == null) {
                 ev = new JSONObject();
                 ev.put("link", url.endsWith("/") ? url : url + "/");
                 ev.put("title", item.optString("name"));
             }
-            av = ev.optString("availability", "");
-            if (av.isEmpty()) {
-                String low = page.text.toLowerCase(Locale.ROOT);
-                if (low.contains("\"soldout\":true") || low.contains("ausverkauft")) av = "SoldOut";
-                else if (low.contains("in den warenkorb") || low.contains("tickets sichern") || low.contains("\"bookable\":true")) av = "InStock";
-            }
             ev.put("availability", av);
             events.put(ev);
-            detail = "Seite geladen (" + (page.text.length() / 1024) + " KB)";
-        } else {
-            detail = "Eventim: HTTP " + page.status;
+            detail = "Geprüft im Browser (" + (w.text.length() / 1024) + " KB Text)";
         }
         r.put("events", events);
         r.put("status", av);
         r.put("statusText", statusText(av));
+        r.put("summary", summary);
         r.put("detail", detail);
         r.put("message", r.optBoolean("ok") ? "" : "Eventim nicht erreichbar – nächster Versuch später");
         return r;
@@ -341,16 +406,16 @@ public class TicketChecker {
             JSONObject item = watch.optJSONObject(i);
             if (item == null) continue;
             if (isEvent(item.optString("url"))) {
-                JSONObject r = checkEvent(item);
+                JSONObject r = checkEvent(c, item);
                 if (r.optBoolean("ok")) {
                     String key = "event:" + item.optString("url").split("\\?")[0];
-                    String before = known.optString(key, null);
+                    String before = known.has(key) ? known.optString(key) : null;
                     String now = r.optString("status");
                     r.put("changed", before != null && !before.equals(now));
                     if (notify && !now.equals(before) && (before != null || buyable(now))) {
                         newCount++;
                         JSONObject ev = r.optJSONArray("events").optJSONObject(0);
-                        String body = statusText(now);
+                        String body = statusText(now) + (r.optString("summary").isEmpty() ? "" : "\n" + r.optString("summary"));
                         if (ev != null && ev.optString("date").length() >= 10) {
                             String d = ev.optString("date");
                             body = d.substring(8, 10) + "." + d.substring(5, 7) + "." + d.substring(0, 4) + " · " + body;
@@ -362,7 +427,7 @@ public class TicketChecker {
                 results.put(r);
                 continue;
             }
-            JSONObject r = checkArtist(item);
+            JSONObject r = checkArtist(c, item);
             if (r.optBoolean("ok")) {
                 String key = slugOf(item.optString("url"));
                 JSONArray before = known.optJSONArray(key);
