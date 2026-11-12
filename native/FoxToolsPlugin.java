@@ -97,6 +97,9 @@ public class FoxToolsPlugin extends Plugin {
             r.put("fast", FastCheckService.isEnabled(getContext()));
             r.put("cartLog", TicketChecker.prefs(getContext()).getString("cartLog", ""));
             r.put("login", JSObject.fromJSONObject(LoginManager.status(getContext())));
+            r.put("history", new JSArray(TicketChecker.prefs(getContext()).getString("history", "[]")));
+            r.put("tgChat", Telegram.chat(getContext()));
+            r.put("tgToken", Telegram.hasToken(getContext()));
             call.resolve(r);
         } catch (Exception e) {
             call.reject(e.getMessage());
@@ -309,6 +312,29 @@ public class FoxToolsPlugin extends Plugin {
                 call.resolve(JSObject.fromJSONObject(LoginManager.ensure(getContext(), true)));
             } catch (Exception e) {
                 call.reject("Prüfung fehlgeschlagen: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    /** Telegram-Daten speichern und eine Testnachricht schicken. */
+    @PluginMethod
+    public void setTelegram(PluginCall call) {
+        String token = call.getString("token", "");
+        String chat = call.getString("chat", "");
+        new Thread(() -> {
+            try {
+                Telegram.set(getContext(), token, chat);
+                JSObject r = new JSObject();
+                if (chat.trim().isEmpty()) {
+                    r.put("off", true);
+                } else {
+                    String err = Telegram.send(getContext(), "🦊 Fox Ticket: Telegram-Alarm funktioniert!");
+                    r.put("ok", err == null);
+                    r.put("error", err == null ? "" : err);
+                }
+                call.resolve(r);
+            } catch (Exception e) {
+                call.reject("Telegram: " + e.getMessage());
             }
         }).start();
     }

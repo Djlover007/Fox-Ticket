@@ -420,7 +420,23 @@ public class TicketChecker {
      * Liest Kategorien, Preise und Status aus dem sichtbaren Seitentext.
      * sel = gewählte Kategorien (leer = alle). Status bezieht sich nur auf die gewählten.
      */
+    static double priceOf(String s) {
+        Matcher m = Pattern.compile("(\\d{1,3}(?:\\.\\d{3})*,\\d{2})").matcher(s);
+        if (!m.find()) return -1;
+        try {
+            return Double.parseDouble(m.group(1).replace(".", "").replace(",", "."));
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
     static JSONObject analyzeEvent(String text, JSONArray sel) throws Exception {
+        return analyzeEvent(text, sel, 0);
+    }
+
+    /** maxPrice > 0: Kategorien über diesem Preis (oder ohne erkennbaren Preis) zählen nicht. */
+    static JSONObject analyzeEvent(String text, JSONArray sel, double maxPrice) throws Exception {
+        JSONArray eligible = new JSONArray();
         String[] lines = text.split("\\n");
         List<String> clean = new ArrayList<>();
         for (String l : lines) {
@@ -445,12 +461,16 @@ public class TicketChecker {
                 b.append(n);
             }
             boolean av = catAvailable(name + " " + b);
-            boolean isSel = selected(name, sel);
+            double price = priceOf(b.toString());
+            boolean tooExp = maxPrice > 0 && (price < 0 || price > maxPrice);
+            boolean isSel = selected(name, sel) && !tooExp;
+            if (isSel && av) eligible.put(name);
             JSONObject cat = new JSONObject();
             cat.put("name", name);
             cat.put("info", b.toString());
             cat.put("available", av);
-            cat.put("selected", isSel && sel != null && sel.length() > 0);
+            cat.put("tooExpensive", tooExp);
+            cat.put("selected", selected(name, sel) && sel != null && sel.length() > 0);
             cats.put(cat);
             if (sum.length() > 0) sum.append('\n');
             sum.append(name).append(b.length() > 0 ? " · " + b : "");
@@ -479,11 +499,29 @@ public class TicketChecker {
         r.put("status", status);
         r.put("summary", sum.toString());
         r.put("cats", cats);
+        r.put("eligible", eligible);
         return r;
     }
 
     /** Einzelnen Termin prüfen: Ticketstatus erkennen (über unsichtbaren Browser). */
-    static JSONObject checkEvent(Context c, JSONObject item) throws Exception {
+    static void history(Context c, String line) {
+        try {
+            JSONArray old = new JSONArray(prefs(c).getString("history", "[]"));
+            JSONArray neu = new JSONArray();
+            neu.put(new java.text.SimpleDateFormat("dd.MM. HH:mm", Locale.GERMANY).format(new java.util.Date()) + "  " + line);
+            for (int i = 0; i < old.length() && i < 59; i++) neu.put(old.optString(i));
+            prefs(c).edit().putString("history", neu.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    static String cartJs(JSONObject item, JSONArray cats) {
+        int qty = Math.max(1, Math.min(10, item.optInt("qty", 1)));
+        return CART_JS.replace("__QTY__", String.valueOf(qty)).replace("__CATS__", cats == null ? "[]" : cats.toString());
+    }
+
+    /** allowCart: bei Verfügbarkeit im selben Seitenaufruf gleich in den Warenkorb legen. */
+    static JSONObject checkEvent(final Context c, final JSONObject item, final boolean allowCart) throws Exception {
         String url = item.optString("url").split("\\?")[0];
         JSONObject r = new JSONObject();
         r.put("name", item.optString("name"));
@@ -494,7 +532,20 @@ public class TicketChecker {
         String av = "";
         String summary = "";
         String detail;
-        WebLoader.Result w = WebLoader.load(c, url, 35000);
+        final JSONObject[] ana = new JSONObject[1];
+        final String[] pageHtml = new String[1];
+        WebLoader.Result w = WebLoader.load(c, url, 35000, (text, html) -> {
+            try {
+                JSONObject a = analyzeEvent(text, item.optJSONArray("cats"), item.optDouble("maxPrice", 0));
+                ana[0] = a;
+                pageHtml[0] = html;
+                if (allowCart && item.optBoolean("autoCart") && buyable(a.optString("status")) && a.optJSONArray("eligible").length() > 0) {
+                    return cartJs(item, a.optJSONArray("eligible"));
+                }
+            } catch (Exception ignored) {
+            }
+            return null;
+        });
         String low = w.text.toLowerCase(Locale.GERMANY);
         if (w.error != null) {
             detail = "Eventim: " + w.error;
@@ -502,13 +553,27 @@ public class TicketChecker {
             detail = "Eventim blockiert den Browser";
         } else {
             r.put("ok", true);
-            JSONObject a = analyzeEvent(w.text, item.optJSONArray("cats"));
+            JSONObject a = ana[0] != null ? ana[0] : analyzeEvent(w.text, item.optJSONArray("cats"), item.optDouble("maxPrice", 0));
+            r.put("eligible", a.optJSONArray("eligible"));
+            if (w.acted) {
+                String fu = w.finalUrl.toLowerCase(Locale.ROOT);
+                boolean inCart = fu.contains("basket") || fu.contains("checkout") || fu.contains("cart") || fu.contains("warenkorb")
+                        || low.contains("zur kasse") || low.contains("in deinem warenkorb") || low.contains("im warenkorb reserviert");
+                String log = new java.text.SimpleDateFormat("dd.MM. HH:mm", Locale.GERMANY).format(new java.util.Date()) + ": "
+                        + (w.cart.isEmpty() ? w.action : w.cart).replace("\"", "") + " → " + (inCart ? "im Warenkorb ✅" : "nicht im Warenkorb ❌");
+                prefs(c).edit().putString("cartLog", log + " (" + w.finalUrl + ")").apply();
+                JSONObject cr = new JSONObject();
+                cr.put("inCart", inCart);
+                cr.put("log", log);
+                cr.put("url", inCart ? w.finalUrl : url);
+                r.put("cart", cr);
+            }
             av = a.optString("status");
             summary = a.optString("summary");
             r.put("cats", a.optJSONArray("cats"));
             Matcher id = EVENT_LINK.matcher(url);
             String eid = id.find() ? id.group(1).toLowerCase(Locale.ROOT) : "";
-            JSONArray found = extract(w.html, eid);
+            JSONArray found = extract(pageHtml[0] != null ? pageHtml[0] : w.html, eid);
             JSONObject ev = null;
             for (int i = 0; i < found.length(); i++) {
                 JSONObject f = found.optJSONObject(i);
@@ -546,6 +611,7 @@ public class TicketChecker {
             known = new JSONObject();
         }
         JSONArray results = new JSONArray();
+        boolean watchChanged = false;
         int newCount = 0;
         boolean anyCart = false;
         for (int i = 0; i < watch.length(); i++) {
@@ -562,34 +628,54 @@ public class TicketChecker {
             JSONObject item = watch.optJSONObject(i);
             if (item == null) continue;
             if (isEvent(item.optString("url"))) {
-                JSONObject r = checkEvent(c, item);
+                JSONObject r = checkEvent(c, item, notify);
                 if (r.optBoolean("ok")) {
                     String key = "event:" + item.optString("url").split("\\?")[0];
                     String before = known.has(key) ? known.optString(key) : null;
                     String now = r.optString("status");
-                    r.put("changed", before != null && !before.equals(now));
-                    String cartKey = "cart:" + key;
-                    long lastCart = known.optLong(cartKey, 0);
-                    boolean wantCart = notify && buyable(now) && item.optBoolean("autoCart");
-                    if (wantCart) {
+                    r.put("changed", before != null && !now.isEmpty() && !before.equals(now));
+                    String body = statusText(now) + (r.optString("summary").isEmpty() ? "" : "\n" + r.optString("summary"));
+                    JSONObject cr = r.optJSONObject("cart");
+                    if (cr != null) {
                         newCount++;
-                        known.put(cartKey, System.currentTimeMillis());
-                        JSONObject ev = r.optJSONArray("events").optJSONObject(0);
-                        String body = statusText(now) + (r.optString("summary").isEmpty() ? "" : "\n" + r.optString("summary"));
-                        JSONObject cr = autoCart(c, item, 2000 + i, body);
-                        r.put("cart", cr);
+                        int qty = Math.max(1, Math.min(10, item.optInt("qty", 1)));
+                        if (cr.optBoolean("inCart")) {
+                            // Erfolg: Auto-Warenkorb für diesen Termin ausschalten, damit nicht immer neu eingelegt wird
+                            item.put("autoCart", false);
+                            watchChanged = true;
+                            r.put("autoOff", true);
+                            history(c, "🛒 " + item.optString("name") + ": " + qty + " Ticket(s) im Warenkorb – Auto-Warenkorb ausgeschaltet");
+                            showNotification(c, 2000 + i, "🛒 " + qty + " Ticket(s) im Warenkorb! Jetzt bezahlen",
+                                    item.optString("name") + "\nTippen und Kauf abschließen – Warenkorb ist nur kurz reserviert!", true, "shop:" + cr.optString("url"));
+                        } else {
+                            history(c, "❌ " + item.optString("name") + ": Einlegen fehlgeschlagen (" + cr.optString("log") + ")");
+                            showNotification(c, 2000 + i, "🎟️ Tickets! " + item.optString("name"), body + "\nTippen → legt sie sofort in den Warenkorb!",
+                                    true, "shop:" + item.optString("url").split("\\?")[0], cartJs(item, r.optJSONArray("eligible")));
+                        }
+                    } else if (now.isEmpty()) {
+                        // Seite geladen, aber nichts erkannt (Eventim hat evtl. die Seite geändert)
+                        int n = known.optInt("unk:" + key, 0) + 1;
+                        known.put("unk:" + key, n);
+                        if (n == 3) {
+                            history(c, "⚠️ " + item.optString("name") + ": Seite wird nicht erkannt");
+                            if (notify) showNotification(c, 2500 + i, "⚠️ Fox Ticket erkennt die Seite nicht", item.optString("name")
+                                    + "\nDreimal hintereinander kein Ticketstatus gefunden – bitte in der App nachsehen.", false, item.optString("url"));
+                        }
                     } else if (notify && !now.equals(before) && (before != null || buyable(now))) {
                         newCount++;
                         JSONObject ev = r.optJSONArray("events").optJSONObject(0);
-                        String body = statusText(now) + (r.optString("summary").isEmpty() ? "" : "\n" + r.optString("summary"));
                         if (ev != null && ev.optString("date").length() >= 10) {
                             String d = ev.optString("date");
                             body = d.substring(8, 10) + "." + d.substring(5, 7) + "." + d.substring(0, 4) + " · " + body;
                         }
+                        history(c, (buyable(now) ? "🎟️ " : "ℹ️ ") + item.optString("name") + ": " + statusText(now));
                         showNotification(c, 2000 + i, (buyable(now) ? "🎟️ Tickets! " : "ℹ️ ") + item.optString("name"), body,
                                 buyable(now), item.optString("url"));
                     }
-                    known.put(key, now);
+                    if (!now.isEmpty()) {
+                        known.put(key, now);
+                        known.put("unk:" + key, 0);
+                    }
                 }
                 results.put(r);
                 continue;
@@ -625,12 +711,14 @@ public class TicketChecker {
                 if (newLinks.length() > 0 && notify) {
                     newCount += newLinks.length();
                     if (newLinks.length() > 4) body.append("\n…");
-                    showNotification(c, 1000 + i, "🎟️ " + item.optString("name") + ": " + newLinks.length() + (newLinks.length() == 1 ? " neuer Termin" : " neue Termine"), body.toString());
+                    showNotification(c, 1000 + i, "🎟️ " + item.optString("name") + ": " + newLinks.length() + (newLinks.length() == 1 ? " neuer Termin" : " neue Termine"), body.toString(), false, item.optString("url"));
+                    history(c, "🆕 " + item.optString("name") + ": " + newLinks.length() + " neue(r) Termin(e)");
                 }
                 known.put(key, all);
             }
             results.put(r);
         }
+        if (watchChanged) setWatch(c, watch);
         JSONObject state = new JSONObject();
         state.put("time", System.currentTimeMillis());
         state.put("results", results);
@@ -702,6 +790,10 @@ public class TicketChecker {
     }
 
     public static boolean showNotification(Context c, int id, String title, String body, boolean alarm, String target, String cartJs) {
+        if (id != 999 && id != 998) {
+            String link = target == null ? "" : (target.startsWith("shop:") ? target.substring(5) : target);
+            Telegram.sendAsync(c, title + "\n" + body + (link.isEmpty() ? "" : "\n" + link));
+        }
         if (!notificationsAllowed(c)) return false;
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);

@@ -31,6 +31,8 @@ DEFAULT_CONFIG = {
     "pw": "",
     "login": {},
     "cartLog": "",
+    "tgToken": "",
+    "tgChat": "",
 }
 
 
@@ -179,6 +181,38 @@ def extract_events(text, slug):
     return list(found.values())
 
 
+def price_of(text):
+    m = re.search(r"(\d{1,3}(?:\.\d{3})*,\d{2})", text)
+    if not m:
+        return -1.0
+    try:
+        return float(m.group(1).replace(".", "").replace(",", "."))
+    except ValueError:
+        return -1.0
+
+
+def telegram_send(cfg, text):
+    """Gibt None bei Erfolg zurück, sonst eine Fehlermeldung."""
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    token, chat = decrypt_pw(cfg.get("tgToken", "")), str(cfg.get("tgChat", "")).strip()
+    if not token or not chat:
+        return "nicht eingerichtet"
+    try:
+        data = urllib.parse.urlencode({"chat_id": chat, "text": text}).encode()
+        urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=15).read()
+        return None
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 404):
+            return "Bot-Token ist falsch"
+        if e.code in (400, 403):
+            return "Chat-ID falsch oder du hast deinem Bot noch nicht „/start“ geschrieben"
+        return f"Telegram antwortet mit HTTP {e.code}"
+    except Exception as e:  # noqa: BLE001
+        return f"Netzwerkfehler: {e}"
+
+
 def cat_available(text):
     cl = text.lower()
     no = "nicht verfügbar" in cl or "ausverkauft" in cl or "nicht mehr verfügbar" in cl
@@ -186,11 +220,11 @@ def cat_available(text):
     return (not no) or "verfügbar" in rest or "warenkorb" in rest
 
 
-def analyze_event(text, sel):
+def analyze_event(text, sel, max_price=0):
     lines = [re.sub(r"\s+", " ", l).strip() for l in text.split("\n")]
     lines = [l for l in lines if l]
     sel = [s.lower() for s in (sel or [])]
-    cats, considered, unavailable, any_buy = [], 0, 0, False
+    cats, considered, unavailable, any_buy, eligible = [], 0, 0, False, []
     for i, l in enumerate(lines):
         if not l.lower().startswith("kategorie"):
             continue
@@ -203,8 +237,12 @@ def analyze_event(text, sel):
                 continue
             info.append(n)
         av = cat_available(l + " " + " ".join(info))
-        is_sel = not sel or l.lower() in sel
-        cats.append({"name": l, "info": " · ".join(info), "available": av})
+        price = price_of(" ".join(info))
+        too_exp = bool(max_price) and (price < 0 or price > max_price)
+        is_sel = (not sel or l.lower() in sel) and not too_exp
+        if is_sel and av:
+            eligible.append(l)
+        cats.append({"name": l, "info": " · ".join(info), "available": av, "tooExpensive": too_exp})
         if is_sel:
             considered += 1
             if av:
@@ -225,7 +263,7 @@ def analyze_event(text, sel):
     else:
         status = ""
     summary = "\n".join(c["name"] + (" · " + c["info"] if c["info"] else "") for c in cats)
-    return status, summary, cats
+    return status, summary, cats, eligible
 
 
 def looks_ready(text):
@@ -247,6 +285,7 @@ class Engine:
         self.notify = notify or (lambda *a, **k: None)
         self.pw = None
         self.ctx = None
+        self.cart_page = None
         self.cart_js = open(resource("cart.js"), encoding="utf-8").read()
         self.login_js = open(resource("login.js"), encoding="utf-8").read()
 
@@ -349,49 +388,72 @@ class Engine:
                 pass
 
     # ----- Prüfen -----
-    def cart_script(self, item):
+    def cart_script(self, item, cats=None):
         qty = max(1, min(10, int(item.get("qty", 1) or 1)))
-        return self.cart_js.replace("__QTY__", str(qty)).replace("__CATS__", json.dumps(item.get("cats") or [], ensure_ascii=False))
+        cats = cats if cats is not None else (item.get("cats") or [])
+        return self.cart_js.replace("__QTY__", str(qty)).replace("__CATS__", json.dumps(cats, ensure_ascii=False))
 
-    def auto_cart(self, cfg, item, visible=False):
-        url = item["url"].split("?")[0]
-        js = self.cart_script(item)
-        page = self._page()
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            if visible:
-                self.show(page)
-            start = time.time()
-            while time.time() - start < 30:
-                page.wait_for_timeout(1500)
-                try:
-                    if time.time() - start > 5 and looks_ready(page.evaluate("document.body.innerText")):
-                        break
-                except Exception:  # noqa: BLE001
-                    pass
-            act = page.evaluate(js)
-            page.wait_for_timeout(10000)
+    def _close_cart_page(self):
+        """Alten Warenkorb-Tab schließen, damit sich keine Tabs ansammeln."""
+        old, self.cart_page = getattr(self, "cart_page", None), None
+        if old is not None:
             try:
-                res = page.evaluate("window.__foxCart||''") or act
-            except Exception:  # noqa: BLE001
-                res = act
-            final = page.url
-            low = final.lower()
-            try:
-                low += " " + page.evaluate("document.body.innerText").lower()
+                old.close()
             except Exception:  # noqa: BLE001
                 pass
-            in_cart = any(w in final.lower() for w in ("basket", "checkout", "cart", "warenkorb")) or "zur kasse" in low or "in deinem warenkorb" in low
-            log = f"{datetime.now():%d.%m. %H:%M}: {res} → " + ("im Warenkorb ✅" if in_cart else "nicht im Warenkorb ❌") + f" ({final})"
-            cfg["cartLog"] = log
-            self.log("Warenkorb: " + log)
-            if in_cart:
-                self.show(page)  # Warenkorb zum Bezahlen anzeigen
-                self.notify(f"🛒 Tickets im Warenkorb! Jetzt bezahlen", item["name"] + "\nDas Edge-Fenster mit dem Warenkorb ist offen – schnell bezahlen!", alarm=True)
-            else:
-                self.notify(f"🎟️ Tickets! {item['name']}", "Automatisch in den Warenkorb hat nicht geklappt – schnell selbst kaufen!", alarm=True, url=url)
+
+    def _wait_ready(self, page, timeout=30):
+        start, text = time.time(), ""
+        while time.time() - start < timeout:
+            page.wait_for_timeout(1500)
+            try:
+                text = page.evaluate("document.body ? document.body.innerText : ''")
+            except Exception:  # noqa: BLE001
+                continue
+            if time.time() - start > 5 and looks_ready(text):
+                break
+        return text
+
+    def _do_cart(self, cfg, item, page, js, visible=False):
+        """Legt auf der bereits geladenen Seite in den Warenkorb. Die Seite bleibt bei Erfolg/Misserfolg offen (sichtbar)."""
+        url = item["url"].split("?")[0]
+        if visible:
+            self.show(page)
+        act = page.evaluate(js)
+        page.wait_for_timeout(10000)
+        try:
+            res = page.evaluate("window.__foxCart||''") or act
+        except Exception:  # noqa: BLE001
+            res = act
+        final = page.url
+        low = final.lower()
+        try:
+            low += " " + page.evaluate("document.body.innerText").lower()
+        except Exception:  # noqa: BLE001
+            pass
+        in_cart = any(w in final.lower() for w in ("basket", "checkout", "cart", "warenkorb")) or "zur kasse" in low or "in deinem warenkorb" in low
+        log = f"{datetime.now():%d.%m. %H:%M}: {res} → " + ("im Warenkorb ✅" if in_cart else "nicht im Warenkorb ❌")
+        cfg["cartLog"] = log + f" ({final})"
+        self.log("Warenkorb: " + log)
+        self._close_cart_page()
+        self.cart_page = page
+        self.show(page)
+        if in_cart:
+            self.notify("🛒 Tickets im Warenkorb! Jetzt bezahlen", item["name"] + "\nDas Edge-Fenster mit dem Warenkorb ist offen – schnell bezahlen!", alarm=True, url=final)
+        else:
+            self.notify(f"🎟️ Tickets! {item['name']}", "Automatisch in den Warenkorb hat nicht geklappt – das Edge-Fenster ist offen, schnell selbst kaufen!", alarm=True, url=url)
+        return {"inCart": in_cart, "log": log}
+
+    def auto_cart(self, cfg, item, visible=False):
+        """Warenkorb-Test: Seite laden und sofort einlegen."""
+        page = self._page()
+        try:
+            page.goto(item["url"].split("?")[0], wait_until="domcontentloaded", timeout=60000)
+            if visible:
                 self.show(page)
-            return {"inCart": in_cart, "log": log}
+            text = self._wait_ready(page)
+            _, _, _, eligible = analyze_event(text, item.get("cats"), item.get("maxPrice") or 0)
+            return self._do_cart(cfg, item, page, self.cart_script(item, eligible or None), visible=visible)
         except Exception as e:  # noqa: BLE001
             self.log(f"Warenkorb-Fehler: {e}")
             try:
@@ -400,25 +462,43 @@ class Engine:
                 pass
             return {"inCart": False, "log": f"Fehler: {e}"}
 
-    def check_event(self, item):
+    def check_event(self, cfg, item, allow_cart=True):
+        """Prüft den Termin und legt bei Verfügbarkeit im selben Seitenaufruf in den Warenkorb."""
         url = item["url"].split("?")[0]
         r = {"name": item["name"], "url": item["url"], "type": "event", "ok": False, "events": []}
+        page = self._page()
+        keep = False
         try:
-            text, html, _ = self.load(url)
-        except Exception as e:  # noqa: BLE001
-            r.update(detail=f"Eventim: {str(e)[:80]}", message="Eventim nicht erreichbar – nächster Versuch später", status="", statusText="")
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=40000)
+                text = self._wait_ready(page, 40)
+                html = page.content()
+            except Exception as e:  # noqa: BLE001
+                r.update(detail=f"Eventim: {str(e)[:80]}", message="Eventim nicht erreichbar – nächster Versuch später", status="", statusText="")
+                return r
+            low = text.lower()
+            if "access denied" in low or "captcha" in low or "pardon our interruption" in low:
+                r.update(detail="Eventim blockiert den Browser", message="Eventim nicht erreichbar", status="", statusText="")
+                return r
+            st, summary, cats, eligible = analyze_event(text, item.get("cats"), item.get("maxPrice") or 0)
+            m = EVENT_LINK.search(url)
+            eid = m.group(1).lower() if m else ""
+            ev = next((e for e in extract_events(html, eid) if e.get("date") and eid in e["link"]), None) or {"link": url, "title": item["name"]}
+            r.update(ok=True, status=st, statusText=STATUS_TEXT.get(st, st), summary=summary, cats=cats, events=[ev],
+                     detail=f"Geprüft im Browser ({len(text) // 1024} KB Text)")
+            if allow_cart and item.get("autoCart") and buyable(st) and eligible:
+                try:
+                    r["cart"] = self._do_cart(cfg, item, page, self.cart_script(item, eligible))
+                    keep = True
+                except Exception as e:  # noqa: BLE001
+                    r["cart"] = {"inCart": False, "log": f"Fehler: {e}"}
             return r
-        low = text.lower()
-        if "access denied" in low or "captcha" in low or "pardon our interruption" in low:
-            r.update(detail="Eventim blockiert den Browser", message="Eventim nicht erreichbar", status="", statusText="")
-            return r
-        st, summary, cats = analyze_event(text, item.get("cats"))
-        m = EVENT_LINK.search(url)
-        eid = m.group(1).lower() if m else ""
-        ev = next((e for e in extract_events(html, eid) if e.get("date") and eid in e["link"]), None) or {"link": url, "title": item["name"]}
-        r.update(ok=True, status=st, statusText=STATUS_TEXT.get(st, st), summary=summary, cats=cats, events=[ev],
-                 detail=f"Geprüft im Browser ({len(text) // 1024} KB Text)")
-        return r
+        finally:
+            if not keep:
+                try:
+                    page.close()
+                except Exception:  # noqa: BLE001
+                    pass
 
     def check_artist(self, item):
         url = item["url"].split("?")[0]
@@ -437,21 +517,31 @@ class Engine:
         results = []
         for i, item in enumerate(cfg["watch"]):
             if is_event(item["url"]):
-                r = self.check_event(item)
+                r = self.check_event(cfg, item)
                 if r["ok"]:
                     key = "event:" + item["url"].split("?")[0]
                     before = known.get(key)
                     now = r["status"]
-                    r["changed"] = before is not None and before != now
+                    r["changed"] = before is not None and bool(now) and before != now
                     body = r["statusText"] + ("\n" + r["summary"] if r.get("summary") else "")
-                    if buyable(now) and item.get("autoCart"):
-                        r["cart"] = self.auto_cart(cfg, item)
+                    if r.get("cart"):
+                        if r["cart"]["inCart"]:
+                            # Erfolg: Auto-Warenkorb ausschalten, damit nicht immer neu eingelegt wird
+                            item["autoCart"] = False
+                            r["autoOff"] = True
+                    elif not now:
+                        n = known.get("unk:" + key, 0) + 1
+                        known["unk:" + key] = n
+                        if n == 3:
+                            self.notify("⚠️ Fox Ticket erkennt die Seite nicht", item["name"] + "\nDreimal hintereinander kein Ticketstatus gefunden – bitte nachsehen.", url=item["url"])
                     elif now != before and (before is not None or buyable(now)):
                         ev = r["events"][0]
                         self.notify(("🎟️ Tickets! " if buyable(now) else "ℹ️ ") + item["name"],
                                     (fmt_date(ev.get("date")) + " · " if ev.get("date") else "") + body,
                                     alarm=buyable(now), url=item["url"])
-                    known[key] = now
+                    if now:
+                        known[key] = now
+                        known["unk:" + key] = 0
             else:
                 r = self.check_artist(item)
                 if r["ok"]:

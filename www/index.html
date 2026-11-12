@@ -56,6 +56,11 @@ h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
 .login input{width:100%;border:0;border-radius:12px;padding:12px;font-size:15px;background:var(--chip);color:var(--text);margin-top:8px;outline:none}
 .login .row{display:flex;gap:8px}
 .login .row .btn{margin-top:10px;padding:11px;font-size:15px}
+.err.info{color:var(--accent)}
+.hist{background:var(--card);border-radius:16px;padding:12px 16px;margin-top:10px;font-size:13px}
+.hist summary{font-size:15px;font-weight:600}
+.hist p{padding:5px 0;border-bottom:1px solid var(--chip);color:var(--muted)}
+.cart input[type=number]{width:64px;height:auto;border:0;border-radius:8px;padding:5px;background:var(--card);color:var(--text);font-size:14px}
 .err{color:#d33;font-size:14px;margin:8px 4px}
 </style>
 <script src="version.js"></script>
@@ -82,6 +87,14 @@ h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
     <button class="btn light" id="login" style="padding:11px;font-size:15px">Selbst anmelden (App-Browser)</button>
     <p style="font-size:12px;margin:8px 0 0">Wird verschlüsselt nur auf diesem Handy gespeichert. Die App prüft stündlich und meldet dich bei Bedarf neu an.</p>
   </div>
+  <div class="login">
+    <h3>✈️ Telegram-Alarm (optional)</h3>
+    <p id="tgstate">Alarme zusätzlich per Telegram – kommt auf allen Geräten an.</p>
+    <input id="tgtoken" type="password" placeholder="Bot-Token von @BotFather">
+    <input id="tgchat" type="text" inputmode="numeric" placeholder="Deine Chat-ID (z. B. von @userinfobot)">
+    <div class="row"><button class="btn" id="tgsave">Speichern &amp; testen</button></div>
+  </div>
+  <details class="hist"><summary>📜 Verlauf</summary><div id="hist"></div></details>
   <p class="note" id="cartlog" hidden></p>
 
   <h2>Künstler oder Termin hinzufügen</h2>
@@ -145,7 +158,7 @@ function render() {
           var sel = w.cats || [];
           evs += '<div class="cats"><b>KATEGORIEN FÜR DEN WARENKORB (nichts gewählt = alle)</b>' + r.cats.map(function (c) {
             return '<label><input type="checkbox" class="cat" data-i="' + i + '" data-name="' + esc(c.name) + '"' + (sel.indexOf(c.name) >= 0 ? " checked" : "") + "><span>" +
-              (c.available ? "🟢 " : "🔴 ") + esc(c.name) + "<small>" + esc(c.info) + "</small></span></label>";
+              (c.available ? "🟢 " : "🔴 ") + esc(c.name) + "<small>" + esc(c.info) + (c.tooExpensive ? " · 💶 über deinem Höchstpreis" : "") + "</small></span></label>";
           }).join("") + "</div>";
         } else if (r.summary) evs += '<p class="dbg" style="white-space:pre-line;font-size:13px;color:var(--text);margin-top:8px">' + esc(r.summary) + "</p>";
       }
@@ -164,7 +177,10 @@ function render() {
     }
     return '<div class="card"><div class="top"><b>' + esc(w.name) + '</b><button class="x" data-i="' + i + '" aria-label="Entfernen">✕</button></div>' +
       st + evs + (w.url.indexOf("/event/") >= 0 ? '<label class="cart"><input type="checkbox" class="ac" data-i="' + i + '"' + (w.autoCart ? " checked" : "") + '><span>🛒 Automatisch in den Warenkorb</span><select class="qty" data-i="' + i + '">' +
-        [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((w.qty || 1) === n ? " selected" : "") + ">" + n + " Ticket" + (n > 1 ? "s" : "") + "</option>"; }).join("") + "</select></label>" + '<button class="btn light testcart" data-i="' + i + '" style="margin-top:8px;padding:10px">🧪 Warenkorb-Test jetzt</button>' : "") +
+        [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((w.qty || 1) === n ? " selected" : "") + ">" + n + " Ticket" + (n > 1 ? "s" : "") + "</option>"; }).join("") + "</select></label>" +
+        '<label class="cart"><span>💶 Höchstpreis pro Ticket (leer = egal)</span><input type="number" class="maxp" min="0" step="1" inputmode="decimal" data-i="' + i + '" value="' + (w.maxPrice || "") + '" placeholder="€"></label>' +
+        (r && r.autoOff ? '<p class="st ok">✅ Im Warenkorb – Auto-Warenkorb wurde ausgeschaltet. Für einen neuen Versuch wieder anhaken.</p>' : "") +
+        '<button class="btn light testcart" data-i="' + i + '" style="margin-top:8px;padding:10px">🧪 Warenkorb-Test jetzt</button>' : "") +
       (r && r.cart ? '<p class="dbg">🛒 ' + esc(r.cart.log) + "</p>" : "") +
       (r && r.detail ? '<p class="dbg">' + esc(r.detail) + "</p>" : "") + '<a class="open" href="#" data-url="' + esc(w.url) + '">In Kiwi öffnen ›</a></div>';
   }).join("") || '<div class="card"><p class="st">Noch kein Künstler – füge unten einen Eventim-Link hinzu.</p></div>';
@@ -177,6 +193,9 @@ function load() {
     $("perm").hidden = !!s.notifications;
     $("fast").checked = !!s.fast;
     showLogin(s.login);
+    $("hist").innerHTML = (s.history || []).map(function (h) { return "<p>" + esc(h) + "</p>"; }).join("") || "<p>Noch nichts passiert.</p>";
+    if (s.tgChat && !$("tgchat").value) $("tgchat").value = s.tgChat;
+    if (s.tgToken) { $("tgtoken").placeholder = "Bot-Token gespeichert ✓"; if (s.tgChat) $("tgstate").textContent = "Telegram-Alarm ist eingerichtet ✅"; }
     if (s.cartLog) { $("cartlog").textContent = "Letzter Warenkorb-Versuch: " + s.cartLog; $("cartlog").hidden = false; }
     render();
   }).catch(function (e) { $("last").textContent = e.message; render(); });
@@ -185,12 +204,12 @@ function load() {
 function check() {
   var b = $("check");
   b.disabled = true; b.textContent = "⏳ Prüfe …";
-  call("checkNow", {}, 120000).then(function (s) { state.last = s; render(); })
+  call("checkNow", {}, 180000).then(function (s) { state.last = s; return load(); })
     .catch(function (e) { alertErr("Prüfen fehlgeschlagen: " + e.message); })
     .then(function () { b.disabled = false; b.textContent = "🔍 Jetzt prüfen"; });
 }
 
-function alertErr(t) { var e = $("err"); e.textContent = t; e.hidden = false; setTimeout(function () { e.hidden = true; }, 5000); }
+function alertErr(t, info) { var e = $("err"); e.className = info ? "err info" : "err"; e.textContent = t; e.hidden = false; setTimeout(function () { e.hidden = true; }, 5000); }
 
 function saveWatch() { render(); return call("setWatch", { watch: state.watch }, 10000).catch(function (e) { alertErr(e.message); }); }
 
@@ -206,6 +225,13 @@ function checkLogin() {
   return call("checkLogin", {}, 90000).then(showLogin).catch(function (e) { $("loginstate").textContent = e.message; });
 }
 $("lcheck").onclick = checkLogin;
+$("tgsave").onclick = function () {
+  $("tgstate").textContent = "⏳ Sende Testnachricht …";
+  call("setTelegram", { token: $("tgtoken").value.trim(), chat: $("tgchat").value.trim() }, 40000).then(function (r) {
+    $("tgtoken").value = "";
+    $("tgstate").textContent = r.off ? "Telegram-Alarm ausgeschaltet" : (r.ok ? "Testnachricht gesendet ✅ – schau in Telegram" : "❌ " + r.error);
+  }).catch(function (e) { $("tgstate").textContent = e.message; });
+};
 $("lsave").onclick = function () {
   var em = $("lemail").value.trim(), pw = $("lpw").value;
   if (!em) { alertErr("Bitte E-Mail eingeben"); return; }
@@ -220,9 +246,10 @@ $("list").onchange = function (ev) {
   if (!state.watch[i]) return;
   if (el.classList.contains("ac")) {
     state.watch[i].autoCart = el.checked;
-    if (el.checked) alertErr("Wichtig: Einmal unten „Bei Eventim anmelden“ – der Warenkorb landet in der App, nicht in Kiwi");
+    if (el.checked) alertErr("Tipp: Unten bei „Eventim-Anmeldung“ einloggen – der Warenkorb landet in der App, nicht in Kiwi", true);
   }
   if (el.classList.contains("qty")) state.watch[i].qty = +el.value;
+  if (el.classList.contains("maxp")) state.watch[i].maxPrice = parseFloat(String(el.value).replace(",", ".")) || 0;
   if (el.classList.contains("cat")) {
     var list = state.watch[i].cats || [];
     var n = el.dataset.name;

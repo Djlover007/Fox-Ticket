@@ -2,6 +2,7 @@
 """Fox Ticket für Windows: überwacht Eventim, meldet freie Tickets und legt sie auf Wunsch in den Warenkorb."""
 import json
 import os
+import random
 import queue
 import subprocess
 import sys
@@ -36,7 +37,13 @@ PURPLE = "#7b2fd1"
 BG = "#f3ecfb"
 
 
-def notify(title, body, alarm=False, url=None):
+CFG_REF = {}
+
+
+def notify(title, body, alarm=False, url=None, telegram=True):
+    if telegram and CFG_REF.get("cfg", {}).get("tgChat"):
+        text = title + "\n" + body + ("\n" + url if url else "")
+        threading.Thread(target=engine.telegram_send, args=(dict(CFG_REF["cfg"]), text), daemon=True).start()
     if Notification is None:
         return
     try:
@@ -87,6 +94,11 @@ class Worker(threading.Thread):
             # Nur Ergebnisse übernehmen, Einstellungen könnten sich inzwischen geändert haben
             for k in ("known", "last", "login", "cartLog"):
                 self.app.cfg[k] = cfg.get(k)
+            # Nach erfolgreichem Einlegen wurde der Auto-Warenkorb ausgeschaltet
+            off = {r["url"] for r in last["results"] if r.get("autoOff")}
+            for w in self.app.cfg["watch"]:
+                if w["url"] in off:
+                    w["autoCart"] = False
             save_config(self.app.cfg)
         self.app.post(self.app.render)
         self.app.log("Geprüft: " + " | ".join(
@@ -107,6 +119,12 @@ class Worker(threading.Thread):
     def job_open(self, url):
         self.eng.open_visible(url)
 
+    def job_telegram(self):
+        with self.app.cfg_lock:
+            cfg = dict(self.app.cfg)
+        err = engine.telegram_send(cfg, "🦊 Fox Ticket: Telegram-Alarm funktioniert!")
+        self.app.post(self.app.lbl_tg.configure, {"text": "Testnachricht gesendet ✅" if err is None else "❌ " + err})
+
     def job_hide(self):
         self.eng.hide()
 
@@ -123,11 +141,13 @@ class Worker(threading.Thread):
 class App:
     def __init__(self):
         self.cfg = load_config()
+        CFG_REF["cfg"] = self.cfg
         self.cfg_lock = threading.Lock()
+        self.tray = None
         self.ui = queue.Queue()
         self.root = tk.Tk()
         self.root.title(f"🦊 {APP_NAME}" + (f" – Version 1.{BUILD}" if BUILD else ""))
-        self.root.geometry("820x760")
+        self.root.geometry("860x860")
         self.root.configure(bg=BG)
         try:
             self.root.iconbitmap(ICON)
@@ -144,6 +164,7 @@ class App:
         self.root.after(1000, self.tick)
         self.root.after(4000, lambda: threading.Thread(target=self.check_update, daemon=True).start())
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.start_tray()
 
     # ---------- Hilfen ----------
     def post(self, fn, *a):
@@ -265,7 +286,19 @@ class App:
         bot.pack(fill="both")
         bb = ttk.Frame(bot)
         bb.pack(fill="x")
-        ttk.Button(bb, text="🔊 Test-Alarm", command=lambda: notify("🎟️ Test-Alarm", "So klingt es, wenn Tickets verfügbar sind", alarm=True)).pack(side="left")
+        tg = ttk.LabelFrame(bot, text=" ✈️ Telegram-Alarm (optional, kommt auf allen Geräten an) ", padding=8)
+        tg.pack(fill="x", pady=(0, 8))
+        ttk.Label(tg, text="Bot-Token").pack(side="left")
+        self.e_tgtoken = ttk.Entry(tg, width=26, show="•")
+        self.e_tgtoken.pack(side="left", padx=4)
+        ttk.Label(tg, text="Chat-ID").pack(side="left")
+        self.e_tgchat = ttk.Entry(tg, width=14)
+        self.e_tgchat.insert(0, str(self.cfg.get("tgChat", "")))
+        self.e_tgchat.pack(side="left", padx=4)
+        ttk.Button(tg, text="Speichern & testen", command=self.save_telegram).pack(side="left", padx=4)
+        self.lbl_tg = ttk.Label(tg, text="eingerichtet ✅" if self.cfg.get("tgToken") and self.cfg.get("tgChat") else "", foreground="#6f5d84")
+        self.lbl_tg.pack(side="left", padx=6)
+        ttk.Button(bb, text="🔊 Test-Alarm", command=lambda: notify("🎟️ Test-Alarm", "So klingt es, wenn Tickets verfügbar sind", alarm=True, telegram=False)).pack(side="left")
         ttk.Button(bb, text="Edge-Fenster ausblenden", command=lambda: self.worker.submit("hide")).pack(side="left", padx=6)
         self.lbl_cart = ttk.Label(bb, text="", foreground="#6f5d84", wraplength=520)
         self.lbl_cart.pack(side="left", padx=6)
@@ -334,7 +367,8 @@ class App:
                 for c in cats:
                     v = tk.BooleanVar(value=c["name"] in chosen)
                     ttk.Checkbutton(self.detail, style="Card.TCheckbutton", variable=v,
-                                    text=("🟢 " if c["available"] else "🔴 ") + c["name"] + ("  –  " + c["info"] if c["info"] else ""),
+                                    text=("🟢 " if c["available"] else "🔴 ") + c["name"] + ("  –  " + c["info"] if c["info"] else "")
+                                    + ("  (über Höchstpreis)" if c.get("tooExpensive") else ""),
                                     command=lambda n=c["name"], var=v: self.toggle_cat(i, n, var.get())).pack(anchor="w")
             row = ttk.Frame(self.detail, style="Card.TFrame")
             row.pack(fill="x", pady=(8, 0))
@@ -345,7 +379,27 @@ class App:
             qty = ttk.Spinbox(row, from_=1, to=10, width=4, command=lambda: self.set_item(i, "qty", int(qty.get())))
             qty.set(w.get("qty", 1))
             qty.pack(side="left", padx=4)
+            ttk.Label(row, text="  Höchstpreis €:", style="Card.TLabel").pack(side="left")
+            mp = ttk.Entry(row, width=7)
+            if w.get("maxPrice"):
+                mp.insert(0, f"{w['maxPrice']:g}")
+            mp.pack(side="left", padx=4)
+
+            def save_max(_=None):
+                try:
+                    val = float(mp.get().replace(",", ".")) if mp.get().strip() else 0
+                except ValueError:
+                    val = 0
+                with self.cfg_lock:
+                    self.cfg["watch"][i]["maxPrice"] = val
+                    save_config(self.cfg)
+
+            mp.bind("<FocusOut>", save_max)
+            mp.bind("<Return>", save_max)
             ttk.Button(row, text="🧪 Warenkorb-Test jetzt", command=lambda: self.worker.submit("cart", i)).pack(side="left", padx=10)
+            if r.get("autoOff"):
+                ttk.Label(self.detail, text="✅ Im Warenkorb – Auto-Warenkorb wurde ausgeschaltet. Für einen neuen Versuch wieder anhaken.",
+                          style="Card.TLabel", foreground="#1f9d55").pack(anchor="w", pady=(6, 0))
             if r.get("cart"):
                 ttk.Label(self.detail, text="🛒 " + r["cart"].get("log", ""), style="Card.TLabel", foreground="#6f5d84", wraplength=740).pack(anchor="w", pady=(6, 0))
         else:
@@ -407,7 +461,8 @@ class App:
         self.add_item(name, f"https://www.eventim.de/{kind}/{slug}/")
 
     def check(self, manual=False):
-        self.next_check = time.time() + self.cfg.get("interval", 5) * 60
+        # leicht zufälliger Abstand (±15 %), wirkt weniger wie ein Automat
+        self.next_check = time.time() + self.cfg.get("interval", 5) * 60 * random.uniform(0.85, 1.15)
         if self.worker.jobs.qsize() < 2:
             self.worker.submit("check", manual)
 
@@ -435,6 +490,51 @@ class App:
         self.e_pw.delete(0, "end")
         self.lbl_login.configure(text="⏳ Prüfe Anmeldung … (bis zu 1 Minute)")
         self.worker.submit("login")
+
+    def save_telegram(self):
+        token, chat = self.e_tgtoken.get().strip(), self.e_tgchat.get().strip()
+        with self.cfg_lock:
+            self.cfg["tgChat"] = chat
+            if token:
+                self.cfg["tgToken"] = engine.encrypt_pw(token)
+            if not chat:
+                self.cfg["tgToken"] = ""
+            save_config(self.cfg)
+        self.e_tgtoken.delete(0, "end")
+        if chat:
+            self.lbl_tg.configure(text="⏳ Sende Testnachricht …")
+            self.worker.submit("telegram")
+        else:
+            self.lbl_tg.configure(text="ausgeschaltet")
+
+    # ---------- Tray-Symbol: Fenster schließen = weiterlaufen im Hintergrund ----------
+    def start_tray(self):
+        try:
+            import pystray
+            from PIL import Image
+            menu = pystray.Menu(
+                pystray.MenuItem("Fox Ticket öffnen", lambda *_: self.post(self.show_window), default=True),
+                pystray.MenuItem("Jetzt prüfen", lambda *_: self.post(self.check, True)),
+                pystray.MenuItem("Beenden", lambda *_: self.post(self.quit)),
+            )
+            self.tray = pystray.Icon("FoxTicket", Image.open(ICON), "Fox Ticket – läuft", menu)
+            self.tray.run_detached()
+        except Exception as e:  # noqa: BLE001
+            self.tray = None
+            self.log(f"Tray-Symbol nicht verfügbar: {e}")
+
+    def show_window(self):
+        self.root.deiconify()
+        self.root.lift()
+
+    def quit(self):
+        try:
+            if self.tray:
+                self.tray.stop()
+        except Exception:  # noqa: BLE001
+            pass
+        self.worker.submit("quit")
+        self.root.after(1500, self.root.destroy)
 
     def set_autostart(self):
         on = self.var_auto.get()
@@ -493,15 +593,20 @@ class App:
                 with open(bat, "w", encoding="utf-8") as f:
                     f.write(f'@echo off\r\nping 127.0.0.1 -n 3 >nul\r\n:loop\r\nmove /y "{new}" "{exe}" >nul 2>&1 || (ping 127.0.0.1 -n 2 >nul & goto loop)\r\nstart "" "{exe}"\r\ndel "%~f0"\r\n')
                 subprocess.Popen(["cmd", "/c", bat], creationflags=0x08000000)
-                self.post(self.on_close)
+                self.post(self.quit)
             except Exception as e:  # noqa: BLE001
                 self.log(f"Update fehlgeschlagen: {e}")
 
         threading.Thread(target=go, daemon=True).start()
 
     def on_close(self):
-        self.worker.submit("quit")
-        self.root.after(1500, self.root.destroy)
+        if self.tray:
+            self.root.withdraw()
+            if not getattr(self, "_tray_hint", False):
+                self._tray_hint = True
+                notify("🦊 Fox Ticket läuft weiter", "Das Programm prüft im Hintergrund. Beenden über das Fuchs-Symbol unten rechts neben der Uhr.", telegram=False)
+        else:
+            self.quit()
 
     def run(self):
         self.root.mainloop()

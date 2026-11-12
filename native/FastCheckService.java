@@ -46,7 +46,8 @@ public class FastCheckService extends Service {
             }
             String time = new SimpleDateFormat("HH:mm", Locale.GERMANY).format(new Date());
             updateNotification("Zuletzt " + time + " Uhr · " + line);
-            handler.postDelayed(this, INTERVAL_MS);
+            // leicht zufälliger Abstand (100–150 s), wirkt weniger wie ein Automat
+            handler.postDelayed(this, 100000 + new java.util.Random().nextInt(50000));
         }
     };
 

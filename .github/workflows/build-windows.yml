@@ -28,7 +28,7 @@ jobs:
 
       - name: EXE bauen
         working-directory: windows
-        run: pyinstaller --onefile --noconsole --name FoxTicket --icon fox.ico --add-data "cart.js;." --add-data "login.js;." --add-data "fox.ico;." --collect-all playwright --collect-all winotify foxticket.py
+        run: pyinstaller --onefile --noconsole --name FoxTicket --icon fox.ico --add-data "cart.js;." --add-data "login.js;." --add-data "fox.ico;." --collect-all playwright --collect-all winotify --hidden-import pystray._win32 foxticket.py
 
       - name: Kurztest (Start der Logik)
         working-directory: windows

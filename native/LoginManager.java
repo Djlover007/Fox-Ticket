@@ -125,6 +125,7 @@ public class LoginManager {
         } catch (Exception ignored) {
         }
         if (!"in".equals(state) && !"unknown".equals(state) && !state.equals(before)) {
+            TicketChecker.history(c, "🔑 Eventim-Anmeldung: " + describe(state));
             TicketChecker.showNotification(c, 4000, "⚠️ Fox Ticket: Eventim-Anmeldung",
                     describe(state) + "\nTippen zum Anmelden – sonst klappt der Auto-Warenkorb nicht.",
                     false, "shop:" + ACCOUNT_URL);
