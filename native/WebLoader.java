@@ -28,6 +28,7 @@ public class WebLoader {
         public String error = null;
         public String finalUrl = "";
         public String action = "";
+        public String cart = "";
     }
 
     static final String UA = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
@@ -72,7 +73,7 @@ public class WebLoader {
                 poll[0] = () -> {
                     if (done.getCount() == 0) return;
                     wv.evaluateJavascript(
-                        "(function(){try{return JSON.stringify({t:document.body?document.body.innerText:'',h:document.documentElement.outerHTML,u:location.href})}catch(e){return ''}})()",
+                        "(function(){try{return JSON.stringify({t:document.body?document.body.innerText:'',h:document.documentElement.outerHTML,u:location.href,c:window.__foxCart||''})}catch(e){return ''}})()",
                         value -> {
                             try {
                                 String json = new org.json.JSONTokener(value).nextValue().toString();
@@ -80,6 +81,7 @@ public class WebLoader {
                                 res.text = o.optString("t");
                                 res.html = o.optString("h");
                                 res.finalUrl = o.optString("u");
+                                res.cart = o.optString("c");
                             } catch (Exception ignored) {
                             }
                             long elapsed = System.currentTimeMillis() - start;

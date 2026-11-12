@@ -217,14 +217,7 @@ $("list").onclick = function (ev) {
   }
   var tc = ev.target.closest(".testcart");
   if (tc) {
-    if (!confirm("Test: Die App legt jetzt wirklich Tickets in den Warenkorb (ohne zu kaufen). Vorher bei Eventim angemeldet? Weiter?")) return;
-    tc.disabled = true; tc.textContent = "⏳ Teste … (bis zu 1 Minute)";
-    call("testCart", { index: +tc.dataset.i }, 120000).then(function (r) {
-      $("cartlog").textContent = "Letzter Warenkorb-Versuch: " + r.log; $("cartlog").hidden = false;
-      if (r.inCart && confirm("✅ Im Warenkorb! Jetzt den Warenkorb öffnen?")) call("openShop", { url: r.url });
-      else if (!r.inCart) alertErr("❌ Nicht im Warenkorb – Details unten. Schick mir die Zeile, dann passe ich es an.");
-    }).catch(function (e) { alertErr(e.message); })
-      .then(function () { tc.disabled = false; tc.textContent = "🧪 Warenkorb-Test jetzt"; });
+    call("testCart", { index: +tc.dataset.i }, 10000).catch(function (e) { alertErr(e.message); });
     return;
   }
   var a = ev.target.closest("[data-url]");

@@ -37,10 +37,10 @@ public class ShopActivity extends Activity {
         Button close = new Button(this);
         close.setText("✕");
         close.setOnClickListener(v -> finish());
-        TextView title = new TextView(this);
+        final TextView title = new TextView(this);
         title.setText("🦊 Fox Ticket · Eventim");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(17);
+        title.setTextSize(15);
         title.setPadding(24, 0, 0, 0);
         bar.addView(close);
         bar.addView(title);
@@ -53,7 +53,25 @@ public class ShopActivity extends Activity {
         s.setSupportMultipleWindows(false);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
-        web.setWebViewClient(new WebViewClient());
+        final String cartJs = getIntent().getStringExtra("cartJs");
+        web.setWebViewClient(new WebViewClient() {
+            boolean done = false;
+
+            @Override
+            public void onPageFinished(WebView view, String u) {
+                if (cartJs == null || done) return;
+                done = true;
+                title.setText("🧪 Warenkorb-Test läuft …");
+                view.postDelayed(() -> view.evaluateJavascript(cartJs, null), 5000);
+                view.postDelayed(() -> view.evaluateJavascript("window.__foxCart||''", v -> {
+                    String res = v == null ? "" : v.replace("\"", "");
+                    String log = "Test " + new java.text.SimpleDateFormat("dd.MM. HH:mm", java.util.Locale.GERMANY).format(new java.util.Date()) + ": " + res;
+                    TicketChecker.prefs(ShopActivity.this).edit().putString("cartLog", log).apply();
+                    title.setText("🧪 " + (res.isEmpty() ? "kein Ergebnis" : res));
+                    android.widget.Toast.makeText(ShopActivity.this, res, android.widget.Toast.LENGTH_LONG).show();
+                }), 14000);
+            }
+        });
         web.setWebChromeClient(new WebChromeClient());
 
         root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));

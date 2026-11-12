@@ -268,22 +268,25 @@ public class FoxToolsPlugin extends Plugin {
         call.resolve(r);
     }
 
-    /** Warenkorb-Test: legt sofort Tickets für den Eintrag in den Warenkorb (ohne zu kaufen). */
+    /** Warenkorb-Test: sichtbar im App-Browser, damit man zusehen und direkt bezahlen kann (kauft nichts). */
     @PluginMethod
     public void testCart(PluginCall call) {
         int index = call.getInt("index", -1);
-        new Thread(() -> {
-            try {
-                JSONObject item = TicketChecker.getWatch(getContext()).optJSONObject(index);
-                if (item == null) {
-                    call.reject("Eintrag nicht gefunden");
-                    return;
-                }
-                JSONObject res = TicketChecker.autoCart(getContext(), item, 3000, "Warenkorb-Test");
-                call.resolve(JSObject.fromJSONObject(res));
-            } catch (Exception e) {
-                call.reject("Test fehlgeschlagen: " + e.getMessage());
-            }
-        }).start();
+        JSONObject item = TicketChecker.getWatch(getContext()).optJSONObject(index);
+        if (item == null) {
+            call.reject("Eintrag nicht gefunden");
+            return;
+        }
+        int qty = Math.max(1, Math.min(10, item.optInt("qty", 1)));
+        JSONArray sel = item.optJSONArray("cats");
+        String js = TicketChecker.CART_JS.replace("__QTY__", String.valueOf(qty)).replace("__CATS__", sel == null ? "[]" : sel.toString());
+        Intent i = new Intent(getContext(), ShopActivity.class);
+        i.putExtra("url", item.optString("url").split("\\?")[0]);
+        i.putExtra("cartJs", js);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        getContext().startActivity(i);
+        JSObject r = new JSObject();
+        r.put("visible", true);
+        call.resolve(r);
     }
 }

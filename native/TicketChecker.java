@@ -45,57 +45,96 @@ public class TicketChecker {
     static final Pattern LD_JSON = Pattern.compile("<script[^>]*application/ld\\+json[^>]*>([\\s\\S]*?)</script>", Pattern.CASE_INSENSITIVE);
     static final String CART_JS =
         "(function (qty, cats) {\n" +
-        "  function t(e) { return ((e.innerText || e.textContent || \"\") + \" \" + (e.getAttribute(\"aria-label\") || \"\") + \" \" + (e.getAttribute(\"title\") || \"\")).trim().toLowerCase(); }\n" +
-        "  function clickable() { return [].slice.call(document.querySelectorAll(\"button,[role=button],a,input[type=submit]\")).filter(function (b) { return !b.disabled && b.getAttribute(\"aria-disabled\") !== \"true\" && b.offsetParent !== null; }); }\n" +
-        "  var log = [];\n" +
-        "  // Cookie-Banner wegklicken\n" +
-        "  clickable().forEach(function (b) { if (/alle akzeptieren|akzeptieren und schließen|alle cookies/.test(t(b))) { b.click(); log.push(\"cookies\"); } });\n" +
-        "  function isPlus(b) { var s = t(b); return s === \"+\" || /(erhöhen|mehr tickets|increase|anzahl erhöhen|plus)/.test(s); }\n" +
-        "  // Menge erhöhen: \"+\"-Knopf der ersten verfügbaren (gewählten) Kategorie\n" +
-        "  var plus = [];\n" +
-        "  if (cats.length) {\n" +
-        "    var all = [].slice.call(document.querySelectorAll(\"body *\"));\n" +
-        "    cats.forEach(function (name) {\n" +
-        "      if (plus.length) return;\n" +
-        "      var n = name.toLowerCase();\n" +
-        "      var label = all.filter(function (e) { return e.children.length < 4 && (e.innerText || \"\").trim().toLowerCase().indexOf(n) === 0; }).pop();\n" +
-        "      for (var el = label, d = 0; el && d < 10 && !plus.length; el = el.parentElement, d++) {\n" +
-        "        if (((el.innerText || \"\").toLowerCase().match(/kategorie/g) || []).length > 1) break; // nicht in andere Kategorien rutschen\n" +
-        "        plus = [].slice.call(el.querySelectorAll(\"button,[role=button]\")).filter(function (b) { return !b.disabled && b.getAttribute(\"aria-disabled\") !== \"true\" && isPlus(b); });\n" +
-        "      }\n" +
-        "      if (plus.length) log.push(\"Kategorie: \" + name);\n" +
-        "    });\n" +
-        "    if (!plus.length) log.push(\"gewählte Kategorie nicht kaufbar\");\n" +
-        "  } else {\n" +
-        "    plus = clickable().filter(isPlus);\n" +
-        "  }\n" +
-        "  if (cats.length && !plus.length) {\n" +
-        "    window.__foxCart = \"abgebrochen\";\n" +
-        "    return log.join(\", \");\n" +
-        "  }\n" +
-        "  if (plus.length) {\n" +
-        "    for (var i = 0; i < qty; i++) plus[0].click();\n" +
-        "    log.push(\"plus x\" + qty);\n" +
-        "  } else {\n" +
-        "    var sel = [].slice.call(document.querySelectorAll(\"select\")).filter(function (s) { return s.offsetParent !== null; })[0];\n" +
-        "    if (sel) {\n" +
-        "      var opt = [].slice.call(sel.options).filter(function (o) { return parseInt(o.value || o.text, 10) === qty; })[0] || sel.options[Math.min(qty, sel.options.length - 1)];\n" +
-        "      sel.value = opt.value;\n" +
-        "      sel.dispatchEvent(new Event(\"input\", { bubbles: true }));\n" +
-        "      sel.dispatchEvent(new Event(\"change\", { bubbles: true }));\n" +
-        "      log.push(\"select \" + opt.value);\n" +
-        "    } else {\n" +
-        "      log.push(\"keine Mengenauswahl\");\n" +
+        "  function t(e) { return ((e.innerText || e.textContent || \"\") + \" \" + (e.getAttribute(\"aria-label\") || \"\") + \" \" + (e.getAttribute(\"title\") || \"\")).replace(/\\s+/g, \" \").trim().toLowerCase(); }\n" +
+        "  function usable(b) { return !b.disabled && b.getAttribute(\"aria-disabled\") !== \"true\"; }\n" +
+        "  function buttonsIn(root) { return [].slice.call(root.querySelectorAll(\"button,[role=button],a,input[type=submit]\")).filter(usable); }\n" +
+        "  // Plus = Knopf direkt nach der Mengen-Zahl (auch wenn er nur ein Symbol ist)\n" +
+        "  function plusIn(root) {\n" +
+        "    var named = buttonsIn(root).filter(isPlus)[0];\n" +
+        "    if (named) return named;\n" +
+        "    var all = [].slice.call(root.querySelectorAll(\"*\"));\n" +
+        "    var num = all.filter(function (e) { return e.children.length === 0 && /^\\d{1,2}$/.test((e.innerText || e.textContent || \"\").trim()); })[0]\n" +
+        "      || root.querySelector(\"input[type=number],input[inputmode=numeric]\");\n" +
+        "    if (!num) return null;\n" +
+        "    var btns = [].slice.call(root.querySelectorAll(\"button,[role=button]\"));\n" +
+        "    for (var i = 0; i < btns.length; i++) {\n" +
+        "      if (num.compareDocumentPosition(btns[i]) & Node.DOCUMENT_POSITION_FOLLOWING) return usable(btns[i]) ? btns[i] : null;\n" +
         "    }\n" +
+        "    return null;\n" +
         "  }\n" +
-        "  // Danach \"In den Warenkorb\" klicken\n" +
-        "  setTimeout(function () {\n" +
-        "    var btn = clickable().filter(function (b) { return /in den warenkorb|zum warenkorb hinzufügen|warenkorb legen/.test(t(b)); })[0]\n" +
-        "      || clickable().filter(function (b) { return /tickets sichern|jetzt buchen|weiter zur buchung/.test(t(b)); })[0];\n" +
-        "    if (btn) { btn.click(); window.__foxCart = \"geklickt: \" + t(btn).slice(0, 40); }\n" +
-        "    else { window.__foxCart = \"kein Warenkorb-Knopf\"; }\n" +
-        "  }, 2000);\n" +
-        "  return log.join(\", \");\n" +
+        "  function isPlus(b) { var s = t(b); return s === \"+\" || /(erhöhen|mehr tickets|increase|plus|hinzufügen)/.test(s) && s.length < 40; }\n" +
+        "  // Warenkorb-Knopf: \"In den Warenkorb\" oder Eventim-Stil \"1 Ticket, € 122,90\"\n" +
+        "  function isCart(b) { var s = t(b); return /in den warenkorb|warenkorb legen|zum warenkorb/.test(s) || /\\d+\\s*tickets?\\s*,?\\s*€\\s*[\\d.,]+/.test(s) || /tickets? sichern|jetzt buchen/.test(s); }\n" +
+        "  var log = [];\n" +
+        "  window.__foxCart = \"läuft\";\n" +
+        "\n" +
+        "  buttonsIn(document).forEach(function (b) { if (/alle akzeptieren|akzeptieren und schließen|alle cookies/.test(t(b))) { b.click(); log.push(\"Cookies\"); } });\n" +
+        "\n" +
+        "  // Bereich der gewünschten Kategorie finden (Karte, die genau eine Kategorie enthält)\n" +
+        "  function categoryBox(name) {\n" +
+        "    var n = name.toLowerCase().replace(/\\s+/g, \" \");\n" +
+        "    var head = n.split(\" - \")[0];\n" +
+        "    var all = [].slice.call(document.querySelectorAll(\"body *\"));\n" +
+        "    var label = all.filter(function (e) {\n" +
+        "      var s = (e.innerText || \"\").replace(/\\s+/g, \" \").trim().toLowerCase();\n" +
+        "      return e.children.length < 6 && s.length < 120 && (s.indexOf(n) === 0 || s.indexOf(head + \" \") === 0 || s === head);\n" +
+        "    }).pop();\n" +
+        "    var box = null;\n" +
+        "    for (var el = label, d = 0; el && d < 12; el = el.parentElement, d++) {\n" +
+        "      if (((el.innerText || \"\").toLowerCase().match(/kategorie/g) || []).length > 1) break;\n" +
+        "      if (plusIn(el)) box = el;\n" +
+        "    }\n" +
+        "    return box;\n" +
+        "  }\n" +
+        "\n" +
+        "  var box = null;\n" +
+        "  if (cats.length) {\n" +
+        "    for (var i = 0; i < cats.length && !box; i++) {\n" +
+        "      var bx = categoryBox(cats[i]);\n" +
+        "      if (bx && plusIn(bx)) { box = bx; log.push(\"Kategorie: \" + cats[i]); }\n" +
+        "    }\n" +
+        "    if (!box) { window.__foxCart = \"gewählte Kategorie nicht kaufbar\"; return log.concat(\"gewählte Kategorie nicht kaufbar\").join(\", \"); }\n" +
+        "  } else {\n" +
+        "    var firstPlus = buttonsIn(document).filter(isPlus)[0];\n" +
+        "    if (!firstPlus) {\n" +
+        "      var nums = [].slice.call(document.querySelectorAll(\"body *\")).filter(function (e) { return e.children.length === 0 && /^\\d{1,2}$/.test((e.innerText || \"\").trim()); });\n" +
+        "      for (var k = 0; k < nums.length && !firstPlus; k++) {\n" +
+        "        for (var p = nums[k].parentElement, dd = 0; p && dd < 4 && !firstPlus; p = p.parentElement, dd++) firstPlus = plusIn(p);\n" +
+        "      }\n" +
+        "    }\n" +
+        "    if (firstPlus) {\n" +
+        "      for (var el = firstPlus, d = 0; el && d < 12; el = el.parentElement, d++) {\n" +
+        "        if (((el.innerText || \"\").toLowerCase().match(/kategorie/g) || []).length > 1) break;\n" +
+        "        box = el;\n" +
+        "      }\n" +
+        "    }\n" +
+        "    if (!box) { window.__foxCart = \"kein Plus-Knopf gefunden\"; return log.concat(\"kein Plus-Knopf\").join(\", \"); }\n" +
+        "  }\n" +
+        "\n" +
+        "  // Aktuelle Menge lesen (Zahl zwischen − und +) und bis qty erhöhen – mit Pausen\n" +
+        "  function current() {\n" +
+        "    var nums = [].slice.call(box.querySelectorAll(\"*\")).filter(function (e) { return e.children.length === 0 && /^\\d{1,2}$/.test((e.innerText || e.value || \"\").trim()); });\n" +
+        "    var inp = box.querySelector(\"input[type=number],input[inputmode=numeric]\");\n" +
+        "    if (inp) return parseInt(inp.value || \"0\", 10);\n" +
+        "    return nums.length ? parseInt(nums[0].innerText.trim(), 10) : 0;\n" +
+        "  }\n" +
+        "  var clicks = 0;\n" +
+        "  function step() {\n" +
+        "    var plus = plusIn(box);\n" +
+        "    if (plus && current() < qty && clicks < qty + 3) {\n" +
+        "      plus.click(); clicks++;\n" +
+        "      setTimeout(step, 700);\n" +
+        "      return;\n" +
+        "    }\n" +
+        "    log.push(\"Menge \" + current());\n" +
+        "    setTimeout(function () {\n" +
+        "      var btn = buttonsIn(box).filter(isCart)[0] || buttonsIn(document).filter(isCart)[0];\n" +
+        "      if (btn) { btn.click(); window.__foxCart = log.join(\", \") + \", geklickt: \" + t(btn).slice(0, 40); }\n" +
+        "      else { window.__foxCart = log.join(\", \") + \", kein Warenkorb-Knopf\"; }\n" +
+        "    }, 1200);\n" +
+        "  }\n" +
+        "  step();\n" +
+        "  return log.join(\", \") + \", starte\";\n" +
         "})(__QTY__, __CATS__)\n" +
         "";
 
@@ -592,9 +631,11 @@ public class TicketChecker {
         String js = CART_JS.replace("__QTY__", String.valueOf(qty)).replace("__CATS__", sel == null ? "[]" : sel.toString());
         WebLoader.Result w = WebLoader.load(c, url, 30000, js);
         String low = (w.text + " " + w.finalUrl).toLowerCase(Locale.GERMANY);
-        boolean inCart = !w.finalUrl.isEmpty() && !w.finalUrl.split("\\?")[0].equals(url) && (low.contains("warenkorb") || low.contains("basket") || low.contains("checkout"));
+        String fu = w.finalUrl.toLowerCase(Locale.ROOT);
+        boolean inCart = fu.contains("basket") || fu.contains("checkout") || fu.contains("cart") || fu.contains("warenkorb")
+                || low.contains("zur kasse") || low.contains("in deinem warenkorb") || low.contains("im warenkorb reserviert");
         String log = new java.text.SimpleDateFormat("dd.MM. HH:mm", Locale.GERMANY).format(new java.util.Date()) + ": "
-                + (w.error != null ? w.error : w.action.replace("\"", "")) + " → " + (inCart ? "im Warenkorb ✅" : "nicht im Warenkorb ❌") + " (" + w.finalUrl + ")";
+                + (w.error != null ? w.error : (w.cart.isEmpty() ? w.action : w.cart).replace("\"", "")) + " → " + (inCart ? "im Warenkorb ✅" : "nicht im Warenkorb ❌") + " (" + w.finalUrl + ")";
         prefs(c).edit().putString("cartLog", log).apply();
         JSONObject res = new JSONObject();
         try {
