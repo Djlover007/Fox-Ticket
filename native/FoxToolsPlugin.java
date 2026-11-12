@@ -267,4 +267,23 @@ public class FoxToolsPlugin extends Plugin {
         r.put("shown", ok);
         call.resolve(r);
     }
+
+    /** Warenkorb-Test: legt sofort Tickets für den Eintrag in den Warenkorb (ohne zu kaufen). */
+    @PluginMethod
+    public void testCart(PluginCall call) {
+        int index = call.getInt("index", -1);
+        new Thread(() -> {
+            try {
+                JSONObject item = TicketChecker.getWatch(getContext()).optJSONObject(index);
+                if (item == null) {
+                    call.reject("Eintrag nicht gefunden");
+                    return;
+                }
+                JSONObject res = TicketChecker.autoCart(getContext(), item, 3000, "Warenkorb-Test");
+                call.resolve(JSObject.fromJSONObject(res));
+            } catch (Exception e) {
+                call.reject("Test fehlgeschlagen: " + e.getMessage());
+            }
+        }).start();
+    }
 }

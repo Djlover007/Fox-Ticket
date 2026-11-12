@@ -44,14 +44,35 @@ public class TicketChecker {
     static final Pattern EVENT_LINK = Pattern.compile("(?:https?:)?(?:\\\\?/\\\\?/www\\.eventim\\.de)?\\\\?/event\\\\?/([a-z0-9-]+-\\d{5,})", Pattern.CASE_INSENSITIVE);
     static final Pattern LD_JSON = Pattern.compile("<script[^>]*application/ld\\+json[^>]*>([\\s\\S]*?)</script>", Pattern.CASE_INSENSITIVE);
     static final String CART_JS =
-        "(function (qty) {\n" +
+        "(function (qty, cats) {\n" +
         "  function t(e) { return ((e.innerText || e.textContent || \"\") + \" \" + (e.getAttribute(\"aria-label\") || \"\") + \" \" + (e.getAttribute(\"title\") || \"\")).trim().toLowerCase(); }\n" +
         "  function clickable() { return [].slice.call(document.querySelectorAll(\"button,[role=button],a,input[type=submit]\")).filter(function (b) { return !b.disabled && b.getAttribute(\"aria-disabled\") !== \"true\" && b.offsetParent !== null; }); }\n" +
         "  var log = [];\n" +
         "  // Cookie-Banner wegklicken\n" +
         "  clickable().forEach(function (b) { if (/alle akzeptieren|akzeptieren und schließen|alle cookies/.test(t(b))) { b.click(); log.push(\"cookies\"); } });\n" +
-        "  // Menge erhöhen: \"+\"-Knopf der ersten verfügbaren Kategorie\n" +
-        "  var plus = clickable().filter(function (b) { var s = t(b); return s === \"+\" || /(erhöhen|mehr tickets|increase|anzahl erhöhen|plus)/.test(s); });\n" +
+        "  function isPlus(b) { var s = t(b); return s === \"+\" || /(erhöhen|mehr tickets|increase|anzahl erhöhen|plus)/.test(s); }\n" +
+        "  // Menge erhöhen: \"+\"-Knopf der ersten verfügbaren (gewählten) Kategorie\n" +
+        "  var plus = [];\n" +
+        "  if (cats.length) {\n" +
+        "    var all = [].slice.call(document.querySelectorAll(\"body *\"));\n" +
+        "    cats.forEach(function (name) {\n" +
+        "      if (plus.length) return;\n" +
+        "      var n = name.toLowerCase();\n" +
+        "      var label = all.filter(function (e) { return e.children.length < 4 && (e.innerText || \"\").trim().toLowerCase().indexOf(n) === 0; }).pop();\n" +
+        "      for (var el = label, d = 0; el && d < 10 && !plus.length; el = el.parentElement, d++) {\n" +
+        "        if (((el.innerText || \"\").toLowerCase().match(/kategorie/g) || []).length > 1) break; // nicht in andere Kategorien rutschen\n" +
+        "        plus = [].slice.call(el.querySelectorAll(\"button,[role=button]\")).filter(function (b) { return !b.disabled && b.getAttribute(\"aria-disabled\") !== \"true\" && isPlus(b); });\n" +
+        "      }\n" +
+        "      if (plus.length) log.push(\"Kategorie: \" + name);\n" +
+        "    });\n" +
+        "    if (!plus.length) log.push(\"gewählte Kategorie nicht kaufbar\");\n" +
+        "  } else {\n" +
+        "    plus = clickable().filter(isPlus);\n" +
+        "  }\n" +
+        "  if (cats.length && !plus.length) {\n" +
+        "    window.__foxCart = \"abgebrochen\";\n" +
+        "    return log.join(\", \");\n" +
+        "  }\n" +
         "  if (plus.length) {\n" +
         "    for (var i = 0; i < qty; i++) plus[0].click();\n" +
         "    log.push(\"plus x\" + qty);\n" +
@@ -75,7 +96,7 @@ public class TicketChecker {
         "    else { window.__foxCart = \"kein Warenkorb-Knopf\"; }\n" +
         "  }, 2000);\n" +
         "  return log.join(\", \");\n" +
-        "})(__QTY__)\n" +
+        "})(__QTY__, __CATS__)\n" +
         "";
 
     static final String CHANNEL_ALARM = "tickets_alarm";
@@ -327,42 +348,71 @@ public class TicketChecker {
         return "InStock".equals(av) || "LimitedAvailability".equals(av) || "OnlineOnly".equals(av);
     }
 
-    /** Liest Kategorien, Preise und Status aus dem sichtbaren Seitentext. Gibt {status, summary} zurück. */
-    static String[] analyzeEvent(String text) {
+    static boolean catAvailable(String cat) {
+        String cl = cat.toLowerCase(Locale.GERMANY);
+        boolean no = cl.contains("nicht verfügbar") || cl.contains("ausverkauft") || cl.contains("nicht mehr verfügbar");
+        String rest = cl.replace("nicht mehr verfügbar", "").replace("nicht verfügbar", "");
+        return !no || rest.contains("verfügbar") || rest.contains("warenkorb");
+    }
+
+    static boolean selected(String catName, JSONArray sel) {
+        if (sel == null || sel.length() == 0) return true;
+        for (int i = 0; i < sel.length(); i++) {
+            if (catName.equalsIgnoreCase(sel.optString(i))) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Liest Kategorien, Preise und Status aus dem sichtbaren Seitentext.
+     * sel = gewählte Kategorien (leer = alle). Status bezieht sich nur auf die gewählten.
+     */
+    static JSONObject analyzeEvent(String text, JSONArray sel) throws Exception {
         String[] lines = text.split("\\n");
         List<String> clean = new ArrayList<>();
         for (String l : lines) {
             String t = l.trim().replaceAll("\\s+", " ");
             if (!t.isEmpty()) clean.add(t);
         }
-        List<String> cats = new ArrayList<>();
+        JSONArray cats = new JSONArray();
+        StringBuilder sum = new StringBuilder();
+        int considered = 0, unavailable = 0;
+        boolean anyBuy = false;
         for (int i = 0; i < clean.size(); i++) {
             if (!clean.get(i).toLowerCase(Locale.GERMANY).startsWith("kategorie")) continue;
-            StringBuilder b = new StringBuilder(clean.get(i));
+            String name = clean.get(i);
+            StringBuilder b = new StringBuilder();
             for (int k = i + 1; k < clean.size() && k <= i + 5; k++) {
                 String n = clean.get(k);
                 String nl = n.toLowerCase(Locale.GERMANY);
                 if (nl.startsWith("kategorie") || nl.startsWith("versand") || nl.startsWith("informationen")) break;
                 if (n.length() > 60) continue;
                 if (n.matches("^[−+\\-0-9]{1,3}$")) continue;
-                b.append(" · ").append(n);
+                if (b.length() > 0) b.append(" · ");
+                b.append(n);
             }
-            cats.add(b.toString());
+            boolean av = catAvailable(name + " " + b);
+            boolean isSel = selected(name, sel);
+            JSONObject cat = new JSONObject();
+            cat.put("name", name);
+            cat.put("info", b.toString());
+            cat.put("available", av);
+            cat.put("selected", isSel && sel != null && sel.length() > 0);
+            cats.put(cat);
+            if (sum.length() > 0) sum.append('\n');
+            sum.append(name).append(b.length() > 0 ? " · " + b : "");
+            if (isSel) {
+                considered++;
+                if (av) anyBuy = true; else unavailable++;
+            }
         }
         String low = text.toLowerCase(Locale.GERMANY);
         String status;
-        if (!cats.isEmpty()) {
-            int unavailable = 0;
-            boolean anyBuy = false;
-            for (String cat : cats) {
-                String cl = cat.toLowerCase(Locale.GERMANY);
-                boolean no = cl.contains("nicht verfügbar") || cl.contains("ausverkauft") || cl.contains("nicht mehr verfügbar");
-                if (no) unavailable++;
-                String rest = cl.replace("nicht mehr verfügbar", "").replace("nicht verfügbar", "");
-                if (!no || rest.contains("verfügbar") || rest.contains("warenkorb") || rest.contains("kaufen")) anyBuy = true;
-            }
+        if (cats.length() > 0 && considered > 0) {
             if (!anyBuy) status = low.contains("ausverkauft") ? "SoldOut" : "NotAvailable";
             else status = unavailable > 0 ? "LimitedAvailability" : "InStock";
+        } else if (cats.length() > 0) {
+            status = "NotAvailable"; // gewählte Kategorien gibt es (noch) nicht
         } else if (low.contains("in den warenkorb")) {
             status = "InStock";
         } else if (low.contains("ausverkauft")) {
@@ -372,12 +422,11 @@ public class TicketChecker {
         } else {
             status = "";
         }
-        StringBuilder sum = new StringBuilder();
-        for (String cat : cats) {
-            if (sum.length() > 0) sum.append('\n');
-            sum.append(cat);
-        }
-        return new String[] { status, sum.toString() };
+        JSONObject r = new JSONObject();
+        r.put("status", status);
+        r.put("summary", sum.toString());
+        r.put("cats", cats);
+        return r;
     }
 
     /** Einzelnen Termin prüfen: Ticketstatus erkennen (über unsichtbaren Browser). */
@@ -400,9 +449,10 @@ public class TicketChecker {
             detail = "Eventim blockiert den Browser";
         } else {
             r.put("ok", true);
-            String[] a = analyzeEvent(w.text);
-            av = a[0];
-            summary = a[1];
+            JSONObject a = analyzeEvent(w.text, item.optJSONArray("cats"));
+            av = a.optString("status");
+            summary = a.optString("summary");
+            r.put("cats", a.optJSONArray("cats"));
             Matcher id = EVENT_LINK.matcher(url);
             String eid = id.find() ? id.group(1).toLowerCase(Locale.ROOT) : "";
             JSONArray found = extract(w.html, eid);
@@ -535,19 +585,30 @@ public class TicketChecker {
     }
 
     /** Versucht, Tickets automatisch in den Warenkorb zu legen (im App-Browser, dort wo du angemeldet bist). */
-    static void autoCart(Context c, JSONObject item, int id, String body) {
+    static JSONObject autoCart(Context c, JSONObject item, int id, String body) {
         String url = item.optString("url").split("\\?")[0];
         int qty = Math.max(1, Math.min(10, item.optInt("qty", 1)));
-        String js = CART_JS.replace("__QTY__", String.valueOf(qty));
+        JSONArray sel = item.optJSONArray("cats");
+        String js = CART_JS.replace("__QTY__", String.valueOf(qty)).replace("__CATS__", sel == null ? "[]" : sel.toString());
         WebLoader.Result w = WebLoader.load(c, url, 30000, js);
         String low = (w.text + " " + w.finalUrl).toLowerCase(Locale.GERMANY);
         boolean inCart = !w.finalUrl.isEmpty() && !w.finalUrl.split("\\?")[0].equals(url) && (low.contains("warenkorb") || low.contains("basket") || low.contains("checkout"));
-        prefs(c).edit().putString("cartLog", new java.util.Date() + ": " + w.action + " → " + w.finalUrl).apply();
+        String log = new java.text.SimpleDateFormat("dd.MM. HH:mm", Locale.GERMANY).format(new java.util.Date()) + ": "
+                + (w.error != null ? w.error : w.action.replace("\"", "")) + " → " + (inCart ? "im Warenkorb ✅" : "nicht im Warenkorb ❌") + " (" + w.finalUrl + ")";
+        prefs(c).edit().putString("cartLog", log).apply();
+        JSONObject res = new JSONObject();
+        try {
+            res.put("inCart", inCart);
+            res.put("log", log);
+            res.put("url", inCart ? w.finalUrl : url);
+        } catch (Exception ignored) {
+        }
         if (inCart) {
             showNotification(c, id, "🛒 " + qty + " Ticket(s) im Warenkorb! Jetzt bezahlen", item.optString("name") + "\nTippen und Kauf abschließen – Warenkorb ist nur kurz reserviert!", true, "shop:" + w.finalUrl);
         } else {
             showNotification(c, id, "🎟️ Tickets! " + item.optString("name"), body + "\nAutomatisch in den Warenkorb hat nicht geklappt – schnell selbst kaufen!", true, "shop:" + url);
         }
+        return res;
     }
 
     /**

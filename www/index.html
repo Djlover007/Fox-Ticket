@@ -42,6 +42,14 @@ h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
 .cart{display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px 12px;border-radius:14px;background:var(--chip);font-size:14px}
 .cart span{flex:1}.cart select{border:0;border-radius:8px;padding:4px;background:var(--card);color:var(--text)}
 .cart input{width:20px;height:20px;accent-color:var(--accent)}
+.cats{margin-top:10px;background:var(--chip);border-radius:14px;padding:8px 12px;font-size:14px}
+.cats b{display:block;font-size:12px;color:var(--muted);margin:2px 0 6px;font-weight:600}
+.cats label{display:flex;gap:10px;align-items:flex-start;padding:6px 0}
+.cats input{width:20px;height:20px;accent-color:var(--accent);flex:none}
+.cats small{display:block;color:var(--muted)}
+.mini{border:0;border-radius:10px;padding:6px 10px;background:var(--accent);color:#fff;font-size:13px;margin-left:8px;flex:none}
+.evrow{display:flex;align-items:center}
+.evrow .ev{flex:1}
 .err{color:#d33;font-size:14px;margin:8px 4px}
 </style>
 <script src="version.js"></script>
@@ -119,7 +127,13 @@ function render() {
           var info = [fmtDate(e.date), e.place].filter(Boolean).join(" · ");
           return info ? '<a class="ev" href="#" data-url="' + esc(e.link) + '">' + esc(e.title) + "<small>" + esc(info) + "</small></a>" : "";
         }).join("");
-        if (r.summary) evs += '<p class="dbg" style="white-space:pre-line;font-size:13px;color:var(--text);margin-top:8px">' + esc(r.summary) + "</p>";
+        if (r.cats && r.cats.length) {
+          var sel = w.cats || [];
+          evs += '<div class="cats"><b>KATEGORIEN FÜR DEN WARENKORB (nichts gewählt = alle)</b>' + r.cats.map(function (c) {
+            return '<label><input type="checkbox" class="cat" data-i="' + i + '" data-name="' + esc(c.name) + '"' + (sel.indexOf(c.name) >= 0 ? " checked" : "") + "><span>" +
+              (c.available ? "🟢 " : "🔴 ") + esc(c.name) + "<small>" + esc(c.info) + "</small></span></label>";
+          }).join("") + "</div>";
+        } else if (r.summary) evs += '<p class="dbg" style="white-space:pre-line;font-size:13px;color:var(--text);margin-top:8px">' + esc(r.summary) + "</p>";
       }
       else if (!r.events.length) st = '<p class="st">Keine Termine – ich passe weiter auf 👀</p>';
       else {
@@ -127,14 +141,16 @@ function render() {
         evs = r.events.map(function (e) {
           var isNew = (r.newLinks || []).indexOf(e.link) >= 0;
           var info = [fmtDate(e.date), e.place, AV[e.availability] || e.availability].filter(Boolean).join(" · ");
-          return '<a class="ev" href="#" data-url="' + esc(e.link) + '">' + esc(e.title) +
-            (isNew ? '<span class="new">NEU</span>' : "") + (info ? "<small>" + esc(info) + "</small>" : "") + "</a>";
+          var watched = state.watch.some(function (x) { return x.url === e.link; });
+          return '<div class="evrow"><a class="ev" href="#" data-url="' + esc(e.link) + '">' + esc(e.title) +
+            (isNew ? '<span class="new">NEU</span>' : "") + (info ? "<small>" + esc(info) + "</small>" : "") + "</a>" +
+            (watched ? "" : '<button class="mini addev" data-link="' + esc(e.link) + '" data-name="' + esc(e.place || e.title) + '">+ Überwachen</button>') + "</div>";
         }).join("");
       }
     }
     return '<div class="card"><div class="top"><b>' + esc(w.name) + '</b><button class="x" data-i="' + i + '" aria-label="Entfernen">✕</button></div>' +
       st + evs + (w.url.indexOf("/event/") >= 0 ? '<label class="cart"><input type="checkbox" class="ac" data-i="' + i + '"' + (w.autoCart ? " checked" : "") + '><span>🛒 Automatisch in den Warenkorb</span><select class="qty" data-i="' + i + '">' +
-        [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((w.qty || 1) === n ? " selected" : "") + ">" + n + " Ticket" + (n > 1 ? "s" : "") + "</option>"; }).join("") + "</select></label>" : "") +
+        [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((w.qty || 1) === n ? " selected" : "") + ">" + n + " Ticket" + (n > 1 ? "s" : "") + "</option>"; }).join("") + "</select></label>" + '<button class="btn light testcart" data-i="' + i + '" style="margin-top:8px;padding:10px">🧪 Warenkorb-Test jetzt</button>' : "") +
       (r && r.detail ? '<p class="dbg">' + esc(r.detail) + "</p>" : "") + '<a class="open" href="#" data-url="' + esc(w.url) + '">In Kiwi öffnen ›</a></div>';
   }).join("") || '<div class="card"><p class="st">Noch kein Künstler – füge unten einen Eventim-Link hinzu.</p></div>';
 }
@@ -173,6 +189,13 @@ $("list").onchange = function (ev) {
     if (el.checked) alertErr("Wichtig: Einmal unten „Bei Eventim anmelden“ – der Warenkorb landet in der App, nicht in Kiwi");
   }
   if (el.classList.contains("qty")) state.watch[i].qty = +el.value;
+  if (el.classList.contains("cat")) {
+    var list = state.watch[i].cats || [];
+    var n = el.dataset.name;
+    list = list.filter(function (x) { return x !== n; });
+    if (el.checked) list.push(n);
+    state.watch[i].cats = list;
+  }
   call("setWatch", { watch: state.watch }, 10000).catch(function (e) { alertErr(e.message); });
 };
 $("fast").onchange = function () {
@@ -186,6 +209,24 @@ $("test").onclick = function () {
   }).catch(function (e) { alertErr(e.message); });
 };
 $("list").onclick = function (ev) {
+  var add = ev.target.closest(".addev");
+  if (add) {
+    state.watch.push({ name: add.dataset.name, url: add.dataset.link });
+    saveWatch().then(check);
+    return;
+  }
+  var tc = ev.target.closest(".testcart");
+  if (tc) {
+    if (!confirm("Test: Die App legt jetzt wirklich Tickets in den Warenkorb (ohne zu kaufen). Vorher bei Eventim angemeldet? Weiter?")) return;
+    tc.disabled = true; tc.textContent = "⏳ Teste … (bis zu 1 Minute)";
+    call("testCart", { index: +tc.dataset.i }, 120000).then(function (r) {
+      $("cartlog").textContent = "Letzter Warenkorb-Versuch: " + r.log; $("cartlog").hidden = false;
+      if (r.inCart && confirm("✅ Im Warenkorb! Jetzt den Warenkorb öffnen?")) call("openShop", { url: r.url });
+      else if (!r.inCart) alertErr("❌ Nicht im Warenkorb – Details unten. Schick mir die Zeile, dann passe ich es an.");
+    }).catch(function (e) { alertErr(e.message); })
+      .then(function () { tc.disabled = false; tc.textContent = "🧪 Warenkorb-Test jetzt"; });
+    return;
+  }
   var a = ev.target.closest("[data-url]");
   if (a) { ev.preventDefault(); openUrl(a.dataset.url); return; }
   var b = ev.target.closest(".x");
