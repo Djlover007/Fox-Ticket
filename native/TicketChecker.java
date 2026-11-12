@@ -48,23 +48,33 @@ public class TicketChecker {
         "  function t(e) { return ((e.innerText || e.textContent || \"\") + \" \" + (e.getAttribute(\"aria-label\") || \"\") + \" \" + (e.getAttribute(\"title\") || \"\")).replace(/\\s+/g, \" \").trim().toLowerCase(); }\n" +
         "  function usable(b) { return !b.disabled && b.getAttribute(\"aria-disabled\") !== \"true\"; }\n" +
         "  function buttonsIn(root) { return [].slice.call(root.querySelectorAll(\"button,[role=button],a,input[type=submit]\")).filter(usable); }\n" +
-        "  // Plus = Knopf direkt nach der Mengen-Zahl (auch wenn er nur ein Symbol ist)\n" +
-        "  function plusIn(root) {\n" +
-        "    var named = buttonsIn(root).filter(isPlus)[0];\n" +
-        "    if (named) return named;\n" +
-        "    var all = [].slice.call(root.querySelectorAll(\"*\"));\n" +
-        "    var num = all.filter(function (e) { return e.children.length === 0 && /^\\d{1,2}$/.test((e.innerText || e.textContent || \"\").trim()); })[0]\n" +
-        "      || root.querySelector(\"input[type=number],input[inputmode=numeric]\");\n" +
-        "    if (!num) return null;\n" +
-        "    var btns = [].slice.call(root.querySelectorAll(\"button,[role=button]\"));\n" +
-        "    for (var i = 0; i < btns.length; i++) {\n" +
-        "      if (num.compareDocumentPosition(btns[i]) & Node.DOCUMENT_POSITION_FOLLOWING) return usable(btns[i]) ? btns[i] : null;\n" +
+        "  function txt(e) { return (e.textContent || e.value || \"\").replace(/\\s+/g, \" \").trim(); }\n" +
+        "  // Mengen-Anzeige: Zahl, die zwischen zwei Knöpfen (− und +) steht\n" +
+        "  function counterIn(root) {\n" +
+        "    var cands = [].slice.call(root.querySelectorAll(\"*\")).filter(function (e) {\n" +
+        "      return (e.children.length === 0 && /^\\d{1,2}$/.test(txt(e))) || (e.tagName === \"INPUT\" && /^\\d{0,2}$/.test(e.value || \"\"));\n" +
+        "    });\n" +
+        "    for (var i = 0; i < cands.length; i++) {\n" +
+        "      var c = cands[i];\n" +
+        "      for (var p = c.parentElement, d = 0; p && d < 3; p = p.parentElement, d++) {\n" +
+        "        var btns = [].slice.call(p.querySelectorAll(\"button,[role=button]\"));\n" +
+        "        var before = btns.filter(function (b) { return c.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING; });\n" +
+        "        var after = btns.filter(function (b) { return c.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING; });\n" +
+        "        if (before.length && after.length) return { el: c, plus: after[0], minus: before[before.length - 1] };\n" +
+        "      }\n" +
         "    }\n" +
         "    return null;\n" +
         "  }\n" +
+        "  function plusIn(root) {\n" +
+        "    var c = counterIn(root);\n" +
+        "    if (c && usable(c.plus)) return c.plus;\n" +
+        "    return buttonsIn(root).filter(isPlus)[0] || null;\n" +
+        "  }\n" +
         "  function isPlus(b) { var s = t(b); return s === \"+\" || /(erhöhen|mehr tickets|increase|plus|hinzufügen)/.test(s) && s.length < 40; }\n" +
         "  // Warenkorb-Knopf: \"In den Warenkorb\" oder Eventim-Stil \"1 Ticket, € 122,90\"\n" +
-        "  function isCart(b) { var s = t(b); return /in den warenkorb|warenkorb legen|zum warenkorb/.test(s) || /\\d+\\s*tickets?\\s*,?\\s*€\\s*[\\d.,]+/.test(s) || /tickets? sichern|jetzt buchen/.test(s); }\n" +
+        "  // Nur der Kauf-Knopf (\"1 Ticket, € 122,90\" / \"In den Warenkorb\"), NICHT der Warenkorb-Link oben im Kopf\n" +
+        "  function isTicketBtn(b) { return /\\d+\\s*tickets?\\s*,?\\s*€\\s*[\\d.,]+/.test(t(b)); }\n" +
+        "  function isCart(b) { var s = t(b); return isTicketBtn(b) || /in den warenkorb|warenkorb legen/.test(s); }\n" +
         "  var log = [];\n" +
         "  window.__foxCart = \"läuft\";\n" +
         "\n" +
@@ -113,10 +123,10 @@ public class TicketChecker {
         "\n" +
         "  // Aktuelle Menge lesen (Zahl zwischen − und +) und bis qty erhöhen – mit Pausen\n" +
         "  function current() {\n" +
-        "    var nums = [].slice.call(box.querySelectorAll(\"*\")).filter(function (e) { return e.children.length === 0 && /^\\d{1,2}$/.test((e.innerText || e.value || \"\").trim()); });\n" +
-        "    var inp = box.querySelector(\"input[type=number],input[inputmode=numeric]\");\n" +
-        "    if (inp) return parseInt(inp.value || \"0\", 10);\n" +
-        "    return nums.length ? parseInt(nums[0].innerText.trim(), 10) : 0;\n" +
+        "    var c = counterIn(box);\n" +
+        "    if (!c) return clicks;\n" +
+        "    var v = parseInt(c.el.tagName === \"INPUT\" ? c.el.value : txt(c.el), 10);\n" +
+        "    return isNaN(v) ? clicks : v;\n" +
         "  }\n" +
         "  var clicks = 0;\n" +
         "  function step() {\n" +
@@ -127,11 +137,15 @@ public class TicketChecker {
         "      return;\n" +
         "    }\n" +
         "    log.push(\"Menge \" + current());\n" +
-        "    setTimeout(function () {\n" +
-        "      var btn = buttonsIn(box).filter(isCart)[0] || buttonsIn(document).filter(isCart)[0];\n" +
-        "      if (btn) { btn.click(); window.__foxCart = log.join(\", \") + \", geklickt: \" + t(btn).slice(0, 40); }\n" +
-        "      else { window.__foxCart = log.join(\", \") + \", kein Warenkorb-Knopf\"; }\n" +
-        "    }, 1200);\n" +
+        "    var tries = 0;\n" +
+        "    (function findCart() {\n" +
+        "      var want = new RegExp(\"(^|\\\\D)\" + current() + \"\\\\s*tickets?\\\\b\");\n" +
+        "      var list = buttonsIn(box).filter(isCart).concat(buttonsIn(document).filter(isTicketBtn));\n" +
+        "      var btn = list.filter(function (b) { return want.test(t(b)); })[0] || (tries >= 10 ? list[0] : null);\n" +
+        "      if (btn) { btn.click(); window.__foxCart = log.join(\", \") + \", geklickt: \" + t(btn).slice(0, 40); return; }\n" +
+        "      if (++tries < 16) { setTimeout(findCart, 500); return; }\n" +
+        "      window.__foxCart = log.join(\", \") + \", kein Kauf-Knopf erschienen\";\n" +
+        "    })();\n" +
         "  }\n" +
         "  step();\n" +
         "  return log.join(\", \") + \", starte\";\n" +

@@ -2,23 +2,33 @@
   function t(e) { return ((e.innerText || e.textContent || "") + " " + (e.getAttribute("aria-label") || "") + " " + (e.getAttribute("title") || "")).replace(/\s+/g, " ").trim().toLowerCase(); }
   function usable(b) { return !b.disabled && b.getAttribute("aria-disabled") !== "true"; }
   function buttonsIn(root) { return [].slice.call(root.querySelectorAll("button,[role=button],a,input[type=submit]")).filter(usable); }
-  // Plus = Knopf direkt nach der Mengen-Zahl (auch wenn er nur ein Symbol ist)
-  function plusIn(root) {
-    var named = buttonsIn(root).filter(isPlus)[0];
-    if (named) return named;
-    var all = [].slice.call(root.querySelectorAll("*"));
-    var num = all.filter(function (e) { return e.children.length === 0 && /^\d{1,2}$/.test((e.innerText || e.textContent || "").trim()); })[0]
-      || root.querySelector("input[type=number],input[inputmode=numeric]");
-    if (!num) return null;
-    var btns = [].slice.call(root.querySelectorAll("button,[role=button]"));
-    for (var i = 0; i < btns.length; i++) {
-      if (num.compareDocumentPosition(btns[i]) & Node.DOCUMENT_POSITION_FOLLOWING) return usable(btns[i]) ? btns[i] : null;
+  function txt(e) { return (e.textContent || e.value || "").replace(/\s+/g, " ").trim(); }
+  // Mengen-Anzeige: Zahl, die zwischen zwei Knöpfen (− und +) steht
+  function counterIn(root) {
+    var cands = [].slice.call(root.querySelectorAll("*")).filter(function (e) {
+      return (e.children.length === 0 && /^\d{1,2}$/.test(txt(e))) || (e.tagName === "INPUT" && /^\d{0,2}$/.test(e.value || ""));
+    });
+    for (var i = 0; i < cands.length; i++) {
+      var c = cands[i];
+      for (var p = c.parentElement, d = 0; p && d < 3; p = p.parentElement, d++) {
+        var btns = [].slice.call(p.querySelectorAll("button,[role=button]"));
+        var before = btns.filter(function (b) { return c.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING; });
+        var after = btns.filter(function (b) { return c.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING; });
+        if (before.length && after.length) return { el: c, plus: after[0], minus: before[before.length - 1] };
+      }
     }
     return null;
   }
+  function plusIn(root) {
+    var c = counterIn(root);
+    if (c && usable(c.plus)) return c.plus;
+    return buttonsIn(root).filter(isPlus)[0] || null;
+  }
   function isPlus(b) { var s = t(b); return s === "+" || /(erhöhen|mehr tickets|increase|plus|hinzufügen)/.test(s) && s.length < 40; }
   // Warenkorb-Knopf: "In den Warenkorb" oder Eventim-Stil "1 Ticket, € 122,90"
-  function isCart(b) { var s = t(b); return /in den warenkorb|warenkorb legen|zum warenkorb/.test(s) || /\d+\s*tickets?\s*,?\s*€\s*[\d.,]+/.test(s) || /tickets? sichern|jetzt buchen/.test(s); }
+  // Nur der Kauf-Knopf ("1 Ticket, € 122,90" / "In den Warenkorb"), NICHT der Warenkorb-Link oben im Kopf
+  function isTicketBtn(b) { return /\d+\s*tickets?\s*,?\s*€\s*[\d.,]+/.test(t(b)); }
+  function isCart(b) { var s = t(b); return isTicketBtn(b) || /in den warenkorb|warenkorb legen/.test(s); }
   var log = [];
   window.__foxCart = "läuft";
 
@@ -67,10 +77,10 @@
 
   // Aktuelle Menge lesen (Zahl zwischen − und +) und bis qty erhöhen – mit Pausen
   function current() {
-    var nums = [].slice.call(box.querySelectorAll("*")).filter(function (e) { return e.children.length === 0 && /^\d{1,2}$/.test((e.innerText || e.value || "").trim()); });
-    var inp = box.querySelector("input[type=number],input[inputmode=numeric]");
-    if (inp) return parseInt(inp.value || "0", 10);
-    return nums.length ? parseInt(nums[0].innerText.trim(), 10) : 0;
+    var c = counterIn(box);
+    if (!c) return clicks;
+    var v = parseInt(c.el.tagName === "INPUT" ? c.el.value : txt(c.el), 10);
+    return isNaN(v) ? clicks : v;
   }
   var clicks = 0;
   function step() {
@@ -81,11 +91,15 @@
       return;
     }
     log.push("Menge " + current());
-    setTimeout(function () {
-      var btn = buttonsIn(box).filter(isCart)[0] || buttonsIn(document).filter(isCart)[0];
-      if (btn) { btn.click(); window.__foxCart = log.join(", ") + ", geklickt: " + t(btn).slice(0, 40); }
-      else { window.__foxCart = log.join(", ") + ", kein Warenkorb-Knopf"; }
-    }, 1200);
+    var tries = 0;
+    (function findCart() {
+      var want = new RegExp("(^|\\D)" + current() + "\\s*tickets?\\b");
+      var list = buttonsIn(box).filter(isCart).concat(buttonsIn(document).filter(isTicketBtn));
+      var btn = list.filter(function (b) { return want.test(t(b)); })[0] || (tries >= 10 ? list[0] : null);
+      if (btn) { btn.click(); window.__foxCart = log.join(", ") + ", geklickt: " + t(btn).slice(0, 40); return; }
+      if (++tries < 16) { setTimeout(findCart, 500); return; }
+      window.__foxCart = log.join(", ") + ", kein Kauf-Knopf erschienen";
+    })();
   }
   step();
   return log.join(", ") + ", starte";
