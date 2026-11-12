@@ -27,6 +27,7 @@ public class WebLoader {
         public String text = "";
         public String error = null;
         public String finalUrl = "";
+        public String action = "";
     }
 
     static final String UA = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
@@ -40,6 +41,11 @@ public class WebLoader {
 
     @SuppressLint("SetJavaScriptEnabled")
     public static Result load(Context ctx, String url, long timeoutMs) {
+        return load(ctx, url, timeoutMs, null);
+    }
+
+    /** Lädt die Seite, führt (falls angegeben) ein Skript aus und wartet danach 10 s auf das Ergebnis. */
+    public static Result load(Context ctx, String url, long timeoutMs, final String actionScript) {
         final Result res = new Result();
         final CountDownLatch done = new CountDownLatch(1);
         final Handler main = new Handler(Looper.getMainLooper());
@@ -61,6 +67,7 @@ public class WebLoader {
                 wv.layout(0, 0, 1080, 2400);
 
                 final boolean[] polling = new boolean[1];
+                final boolean[] acted = new boolean[1];
                 final Runnable[] poll = new Runnable[1];
                 poll[0] = () -> {
                     if (done.getCount() == 0) return;
@@ -77,7 +84,14 @@ public class WebLoader {
                             }
                             long elapsed = System.currentTimeMillis() - start;
                             // Mind. 5 s warten, damit die Preise nachgeladen sind
-                            if ((elapsed > 5000 && looksReady(res.text)) || elapsed > timeoutMs) {
+                            boolean ready = (elapsed > 5000 && looksReady(res.text)) || elapsed > timeoutMs;
+                            if (ready && actionScript != null && !acted[0]) {
+                                acted[0] = true;
+                                wv.evaluateJavascript(actionScript, v -> {
+                                    res.action = v == null ? "" : v;
+                                    main.postDelayed(poll[0], 10000);
+                                });
+                            } else if (ready) {
                                 done.countDown();
                             } else {
                                 main.postDelayed(poll[0], 1500);
@@ -112,7 +126,7 @@ public class WebLoader {
         });
 
         try {
-            if (!done.await(timeoutMs + 10000, TimeUnit.MILLISECONDS) && res.text.isEmpty()) {
+            if (!done.await(timeoutMs + (actionScript != null ? 25000 : 10000), TimeUnit.MILLISECONDS) && res.text.isEmpty()) {
                 res.error = "Zeitüberschreitung";
             }
         } catch (InterruptedException e) {

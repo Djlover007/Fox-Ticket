@@ -56,7 +56,8 @@ jobs:
           s = open(p).read()
           add = open("native/manifest-additions.xml").read()
           perms = "".join('    <uses-permission android:name="android.permission.%s" />\n' % x for x in ["FOREGROUND_SERVICE", "FOREGROUND_SERVICE_SPECIAL_USE", "WAKE_LOCK", "RECEIVE_BOOT_COMPLETED", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"])
-          s = s.replace("</application>", add + "    </application>", 1).replace("</manifest>", perms + "</manifest>", 1)
+          queries = '    <queries>\n        <package android:name="com.kiwibrowser.browser" />\n    </queries>\n'
+          s = s.replace("</application>", add + "    </application>", 1).replace("</manifest>", perms + queries + "</manifest>", 1)
           open(p, "w").write(s)
           PY
           grep -n "work-runtime" "$GRADLE"

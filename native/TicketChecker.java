@@ -43,6 +43,43 @@ public class TicketChecker {
 
     static final Pattern EVENT_LINK = Pattern.compile("(?:https?:)?(?:\\\\?/\\\\?/www\\.eventim\\.de)?\\\\?/event\\\\?/([a-z0-9-]+-\\d{5,})", Pattern.CASE_INSENSITIVE);
     static final Pattern LD_JSON = Pattern.compile("<script[^>]*application/ld\\+json[^>]*>([\\s\\S]*?)</script>", Pattern.CASE_INSENSITIVE);
+    static final String CART_JS =
+        "(function (qty) {\n" +
+        "  function t(e) { return ((e.innerText || e.textContent || \"\") + \" \" + (e.getAttribute(\"aria-label\") || \"\") + \" \" + (e.getAttribute(\"title\") || \"\")).trim().toLowerCase(); }\n" +
+        "  function clickable() { return [].slice.call(document.querySelectorAll(\"button,[role=button],a,input[type=submit]\")).filter(function (b) { return !b.disabled && b.getAttribute(\"aria-disabled\") !== \"true\" && b.offsetParent !== null; }); }\n" +
+        "  var log = [];\n" +
+        "  // Cookie-Banner wegklicken\n" +
+        "  clickable().forEach(function (b) { if (/alle akzeptieren|akzeptieren und schließen|alle cookies/.test(t(b))) { b.click(); log.push(\"cookies\"); } });\n" +
+        "  // Menge erhöhen: \"+\"-Knopf der ersten verfügbaren Kategorie\n" +
+        "  var plus = clickable().filter(function (b) { var s = t(b); return s === \"+\" || /(erhöhen|mehr tickets|increase|anzahl erhöhen|plus)/.test(s); });\n" +
+        "  if (plus.length) {\n" +
+        "    for (var i = 0; i < qty; i++) plus[0].click();\n" +
+        "    log.push(\"plus x\" + qty);\n" +
+        "  } else {\n" +
+        "    var sel = [].slice.call(document.querySelectorAll(\"select\")).filter(function (s) { return s.offsetParent !== null; })[0];\n" +
+        "    if (sel) {\n" +
+        "      var opt = [].slice.call(sel.options).filter(function (o) { return parseInt(o.value || o.text, 10) === qty; })[0] || sel.options[Math.min(qty, sel.options.length - 1)];\n" +
+        "      sel.value = opt.value;\n" +
+        "      sel.dispatchEvent(new Event(\"input\", { bubbles: true }));\n" +
+        "      sel.dispatchEvent(new Event(\"change\", { bubbles: true }));\n" +
+        "      log.push(\"select \" + opt.value);\n" +
+        "    } else {\n" +
+        "      log.push(\"keine Mengenauswahl\");\n" +
+        "    }\n" +
+        "  }\n" +
+        "  // Danach \"In den Warenkorb\" klicken\n" +
+        "  setTimeout(function () {\n" +
+        "    var btn = clickable().filter(function (b) { return /in den warenkorb|zum warenkorb hinzufügen|warenkorb legen/.test(t(b)); })[0]\n" +
+        "      || clickable().filter(function (b) { return /tickets sichern|jetzt buchen|weiter zur buchung/.test(t(b)); })[0];\n" +
+        "    if (btn) { btn.click(); window.__foxCart = \"geklickt: \" + t(btn).slice(0, 40); }\n" +
+        "    else { window.__foxCart = \"kein Warenkorb-Knopf\"; }\n" +
+        "  }, 2000);\n" +
+        "  return log.join(\", \");\n" +
+        "})(__QTY__)\n" +
+        "";
+
+    static final String CHANNEL_ALARM = "tickets_alarm";
+
     static final Pattern ARTIST = Pattern.compile("/artist/([a-z0-9-]+)", Pattern.CASE_INSENSITIVE);
 
     static SharedPreferences prefs(Context c) {
@@ -420,7 +457,12 @@ public class TicketChecker {
                             String d = ev.optString("date");
                             body = d.substring(8, 10) + "." + d.substring(5, 7) + "." + d.substring(0, 4) + " · " + body;
                         }
-                        showNotification(c, 2000 + i, (buyable(now) ? "🎟️ Tickets! " : "ℹ️ ") + item.optString("name"), body);
+                        if (buyable(now) && item.optBoolean("autoCart")) {
+                            autoCart(c, item, 2000 + i, body);
+                        } else {
+                            showNotification(c, 2000 + i, (buyable(now) ? "🎟️ Tickets! " : "ℹ️ ") + item.optString("name"), body,
+                                    buyable(now), item.optString("url"));
+                        }
                     }
                     known.put(key, now);
                 }
@@ -472,6 +514,15 @@ public class TicketChecker {
         return state;
     }
 
+    static boolean isInstalled(Context c, String pkg) {
+        try {
+            c.getPackageManager().getPackageInfo(pkg, 0);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     public static boolean notificationsAllowed(Context c) {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             return false;
@@ -480,25 +531,68 @@ public class TicketChecker {
     }
 
     public static boolean showNotification(Context c, int id, String title, String body) {
+        return showNotification(c, id, title, body, false, null);
+    }
+
+    /** Versucht, Tickets automatisch in den Warenkorb zu legen (im App-Browser, dort wo du angemeldet bist). */
+    static void autoCart(Context c, JSONObject item, int id, String body) {
+        String url = item.optString("url").split("\\?")[0];
+        int qty = Math.max(1, Math.min(10, item.optInt("qty", 1)));
+        String js = CART_JS.replace("__QTY__", String.valueOf(qty));
+        WebLoader.Result w = WebLoader.load(c, url, 30000, js);
+        String low = (w.text + " " + w.finalUrl).toLowerCase(Locale.GERMANY);
+        boolean inCart = !w.finalUrl.isEmpty() && !w.finalUrl.split("\\?")[0].equals(url) && (low.contains("warenkorb") || low.contains("basket") || low.contains("checkout"));
+        prefs(c).edit().putString("cartLog", new java.util.Date() + ": " + w.action + " → " + w.finalUrl).apply();
+        if (inCart) {
+            showNotification(c, id, "🛒 " + qty + " Ticket(s) im Warenkorb! Jetzt bezahlen", item.optString("name") + "\nTippen und Kauf abschließen – Warenkorb ist nur kurz reserviert!", true, "shop:" + w.finalUrl);
+        } else {
+            showNotification(c, id, "🎟️ Tickets! " + item.optString("name"), body + "\nAutomatisch in den Warenkorb hat nicht geklappt – schnell selbst kaufen!", true, "shop:" + url);
+        }
+    }
+
+    /**
+     * alarm = lauter Alarmton. target = Link zum Öffnen beim Tippen:
+     * "shop:URL" öffnet den App-Browser (angemeldet), sonst Kiwi.
+     */
+    public static boolean showNotification(Context c, int id, String title, String body, boolean alarm, String target) {
         if (!notificationsAllowed(c)) return false;
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
             NotificationChannel ch = new NotificationChannel(CHANNEL, "Neue Konzerttermine", NotificationManager.IMPORTANCE_HIGH);
             ch.setDescription("Meldet neue Termine auf Eventim");
             nm.createNotificationChannel(ch);
+            NotificationChannel al = new NotificationChannel(CHANNEL_ALARM, "Tickets verfügbar (Alarm)", NotificationManager.IMPORTANCE_HIGH);
+            al.setDescription("Lauter Alarm, wenn Tickets verfügbar sind");
+            al.enableVibration(true);
+            al.setVibrationPattern(new long[] { 0, 800, 400, 800, 400, 800 });
+            al.setBypassDnd(true);
+            al.setSound(android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM),
+                    new android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+            nm.createNotificationChannel(al);
         }
-        Intent open = c.getPackageManager().getLaunchIntentForPackage(c.getPackageName());
+        Intent open;
+        if (target != null && target.startsWith("shop:")) {
+            open = new Intent(c, ShopActivity.class);
+            open.putExtra("url", target.substring(5));
+        } else if (target != null && !target.isEmpty() && isInstalled(c, "com.kiwibrowser.browser")) {
+            open = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(target));
+            open.setPackage("com.kiwibrowser.browser");
+        } else {
+            open = c.getPackageManager().getLaunchIntentForPackage(c.getPackageName());
+        }
         PendingIntent pi = null;
         if (open != null) {
             open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             pi = PendingIntent.getActivity(c, id, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         }
-        NotificationCompat.Builder b = new NotificationCompat.Builder(c, CHANNEL)
+        NotificationCompat.Builder b = new NotificationCompat.Builder(c, alarm ? CHANNEL_ALARM : CHANNEL)
                 .setSmallIcon(c.getApplicationInfo().icon)
                 .setContentTitle(title)
                 .setContentText(body)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setPriority(alarm ? NotificationCompat.PRIORITY_MAX : NotificationCompat.PRIORITY_HIGH)
+                .setCategory(alarm ? NotificationCompat.CATEGORY_ALARM : NotificationCompat.CATEGORY_MESSAGE)
                 .setAutoCancel(true);
         if (pi != null) b.setContentIntent(pi);
         try {

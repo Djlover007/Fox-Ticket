@@ -39,6 +39,9 @@ h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
 .fast{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:16px;padding:14px 16px;margin-top:10px}
 .fast div{flex:1}.fast small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 .fast input{width:22px;height:22px;accent-color:var(--accent)}
+.cart{display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px 12px;border-radius:14px;background:var(--chip);font-size:14px}
+.cart span{flex:1}.cart select{border:0;border-radius:8px;padding:4px;background:var(--card);color:var(--text)}
+.cart input{width:20px;height:20px;accent-color:var(--accent)}
 .err{color:#d33;font-size:14px;margin:8px 4px}
 </style>
 <script src="version.js"></script>
@@ -55,6 +58,9 @@ h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
   <label class="fast"><div>⚡ Schnellmodus: alle 2 Minuten<small>Läuft dauerhaft mit Anzeige in der Benachrichtigungsleiste, braucht mehr Akku</small></div><input type="checkbox" id="fast"></label>
   <button class="btn light" id="perm" hidden>🔔 Benachrichtigungen erlauben</button>
   <button class="btn light" id="test">Test-Benachrichtigung senden</button>
+  <button class="btn light" id="alarm">🔊 Test-Alarm (Tickets verfügbar)</button>
+  <button class="btn light" id="login">🔑 Bei Eventim anmelden (für Auto-Warenkorb)</button>
+  <p class="note" id="cartlog" hidden></p>
 
   <h2>Künstler oder Termin hinzufügen</h2>
   <div class="add">
@@ -127,7 +133,9 @@ function render() {
       }
     }
     return '<div class="card"><div class="top"><b>' + esc(w.name) + '</b><button class="x" data-i="' + i + '" aria-label="Entfernen">✕</button></div>' +
-      st + evs + (r && r.detail ? '<p class="dbg">' + esc(r.detail) + "</p>" : "") + '<a class="open" href="#" data-url="' + esc(w.url) + '">In Kiwi öffnen ›</a></div>';
+      st + evs + (w.url.indexOf("/event/") >= 0 ? '<label class="cart"><input type="checkbox" class="ac" data-i="' + i + '"' + (w.autoCart ? " checked" : "") + '><span>🛒 Automatisch in den Warenkorb</span><select class="qty" data-i="' + i + '">' +
+        [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((w.qty || 1) === n ? " selected" : "") + ">" + n + " Ticket" + (n > 1 ? "s" : "") + "</option>"; }).join("") + "</select></label>" : "") +
+      (r && r.detail ? '<p class="dbg">' + esc(r.detail) + "</p>" : "") + '<a class="open" href="#" data-url="' + esc(w.url) + '">In Kiwi öffnen ›</a></div>';
   }).join("") || '<div class="card"><p class="st">Noch kein Künstler – füge unten einen Eventim-Link hinzu.</p></div>';
 }
 
@@ -137,6 +145,7 @@ function load() {
     state.last = s.last || null;
     $("perm").hidden = !!s.notifications;
     $("fast").checked = !!s.fast;
+    if (s.cartLog) { $("cartlog").textContent = "Letzter Warenkorb-Versuch: " + s.cartLog; $("cartlog").hidden = false; }
     render();
   }).catch(function (e) { $("last").textContent = e.message; render(); });
 }
@@ -154,6 +163,18 @@ function alertErr(t) { var e = $("err"); e.textContent = t; e.hidden = false; se
 function saveWatch() { render(); return call("setWatch", { watch: state.watch }, 10000).catch(function (e) { alertErr(e.message); }); }
 
 $("check").onclick = check;
+$("login").onclick = function () { call("openShop", { url: "https://www.eventim.de/myAccount/" }).catch(function (e) { alertErr(e.message); }); };
+$("alarm").onclick = function () { call("testAlarm").catch(function (e) { alertErr(e.message); }); };
+$("list").onchange = function (ev) {
+  var el = ev.target, i = +el.dataset.i;
+  if (!state.watch[i]) return;
+  if (el.classList.contains("ac")) {
+    state.watch[i].autoCart = el.checked;
+    if (el.checked) alertErr("Wichtig: Einmal unten „Bei Eventim anmelden“ – der Warenkorb landet in der App, nicht in Kiwi");
+  }
+  if (el.classList.contains("qty")) state.watch[i].qty = +el.value;
+  call("setWatch", { watch: state.watch }, 10000).catch(function (e) { alertErr(e.message); });
+};
 $("fast").onchange = function () {
   var on = this.checked;
   call("setFastMode", { enabled: on }, 10000).then(function (r) { $("fast").checked = !!r.fast; })

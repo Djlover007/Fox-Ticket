@@ -95,6 +95,7 @@ public class FoxToolsPlugin extends Plugin {
             if (last != null) r.put("last", JSObject.fromJSONObject(last));
             r.put("notifications", TicketChecker.notificationsAllowed(getContext()));
             r.put("fast", FastCheckService.isEnabled(getContext()));
+            r.put("cartLog", TicketChecker.prefs(getContext()).getString("cartLog", ""));
             call.resolve(r);
         } catch (Exception e) {
             call.reject(e.getMessage());
@@ -247,5 +248,23 @@ public class FoxToolsPlugin extends Plugin {
                 if (con != null) con.disconnect();
             }
         }).start();
+    }
+
+    /** Öffnet Eventim im App-Browser (z. B. zum Anmelden oder Bezahlen). */
+    @PluginMethod
+    public void openShop(PluginCall call) {
+        Intent i = new Intent(getContext(), ShopActivity.class);
+        i.putExtra("url", call.getString("url", "https://www.eventim.de/"));
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        getContext().startActivity(i);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void testAlarm(PluginCall call) {
+        boolean ok = TicketChecker.showNotification(getContext(), 998, "🎟️ Test-Alarm", "So klingt es, wenn Tickets verfügbar sind", true, "shop:https://www.eventim.de/");
+        JSObject r = new JSObject();
+        r.put("shown", ok);
+        call.resolve(r);
     }
 }
