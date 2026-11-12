@@ -1,0 +1,16 @@
+
+android {
+    signingConfigs {
+        fox {
+            storeFile file("../fox-ticket.keystore")
+            storePassword "foxticket123"
+            keyAlias "fox"
+            keyPassword "foxticket123"
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.fox
+        }
+    }
+}
