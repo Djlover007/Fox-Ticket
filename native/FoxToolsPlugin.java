@@ -96,6 +96,7 @@ public class FoxToolsPlugin extends Plugin {
             r.put("notifications", TicketChecker.notificationsAllowed(getContext()));
             r.put("fast", FastCheckService.isEnabled(getContext()));
             r.put("cartLog", TicketChecker.prefs(getContext()).getString("cartLog", ""));
+            r.put("login", JSObject.fromJSONObject(LoginManager.status(getContext())));
             call.resolve(r);
         } catch (Exception e) {
             call.reject(e.getMessage());
@@ -286,5 +287,29 @@ public class FoxToolsPlugin extends Plugin {
         JSObject r = new JSObject();
         r.put("visible", true);
         call.resolve(r);
+    }
+
+    @PluginMethod
+    public void setCredentials(PluginCall call) {
+        String email = call.getString("email", "");
+        String pw = call.getString("password", "");
+        try {
+            if (email.isEmpty() && pw.isEmpty()) LoginManager.clearCredentials(getContext());
+            else LoginManager.setCredentials(getContext(), email, pw);
+            call.resolve(JSObject.fromJSONObject(LoginManager.status(getContext())));
+        } catch (Exception e) {
+            call.reject("Speichern fehlgeschlagen: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void checkLogin(PluginCall call) {
+        new Thread(() -> {
+            try {
+                call.resolve(JSObject.fromJSONObject(LoginManager.ensure(getContext(), true)));
+            } catch (Exception e) {
+                call.reject("Prüfung fehlgeschlagen: " + e.getMessage());
+            }
+        }).start();
     }
 }

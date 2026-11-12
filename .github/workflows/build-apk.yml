@@ -42,7 +42,7 @@ jobs:
           sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" "$GRADLE"
           sed -i 's/versionName "1.0"/versionName "1.${{ github.run_number }}"/' "$GRADLE"
           grep -q "^dependencies {" "$GRADLE" || { echo "dependencies nicht gefunden"; exit 1; }
-          sed -i '0,/^dependencies {/s//dependencies {\n    implementation "androidx.work:work-runtime:2.9.1"/' "$GRADLE"
+          sed -i '0,/^dependencies {/s//dependencies {\n    implementation "androidx.work:work-runtime:2.9.1"\n    implementation "androidx.security:security-crypto:1.1.0-alpha06"/' "$GRADLE"
           cp fox-ticket.keystore android/fox-ticket.keystore
           cat signing.gradle >> "$GRADLE"
           JAVA_DIR=android/app/src/main/java/de/fox/ticket

@@ -542,6 +542,17 @@ public class TicketChecker {
         }
         JSONArray results = new JSONArray();
         int newCount = 0;
+        boolean anyCart = false;
+        for (int i = 0; i < watch.length(); i++) {
+            JSONObject it = watch.optJSONObject(i);
+            if (it != null && it.optBoolean("autoCart")) anyCart = true;
+        }
+        if (anyCart && notify) {
+            try {
+                LoginManager.ensure(c, false);
+            } catch (Exception ignored) {
+            }
+        }
         for (int i = 0; i < watch.length(); i++) {
             JSONObject item = watch.optJSONObject(i);
             if (item == null) continue;
