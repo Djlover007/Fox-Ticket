@@ -7,7 +7,7 @@
 <!--
   PROTOTYP – Wegwerf-Code, nicht für die App.
   Frage: Wie soll der Startbildschirm von Fox Ticket aufgebaut sein?
-  Drei strukturell verschiedene Varianten, umschaltbar über ?variant=A|B|C
+  Drei strukturell verschiedene Varianten, umschaltbar über #variante-a|b|c (oder ?variant=A|B|C)
   und die Leiste unten. Läuft mit Beispieldaten (keine Verbindung zur App-Logik),
   weil die echten Daten nur über das Capacitor-Plugin im Handy kommen.
   Farben und Schrift wie www/index.html.
@@ -239,7 +239,7 @@ function renderC() {
 }
 
 // ── Umschalter ──
-var current = (new URLSearchParams(location.search).get("variant") || "A").toUpperCase();
+var current = (location.hash.replace("#variante-", "") || new URLSearchParams(location.search).get("variant") || "A").toUpperCase();
 if (!VARIANTS.some(function (v) { return v.key === current; })) current = "A";
 function render() {
   var app = document.getElementById("app");
@@ -251,8 +251,7 @@ function render() {
 function go(step) {
   var i = VARIANTS.findIndex(function (v) { return v.key === current; });
   current = VARIANTS[(i + step + VARIANTS.length) % VARIANTS.length].key;
-  var u = new URL(location.href); u.searchParams.set("variant", current);
-  try { history.replaceState(null, "", u); } catch (e) {}
+  try { history.replaceState(null, "", "#variante-" + current.toLowerCase()); } catch (e) {}
   window.scrollTo(0, 0); render();
 }
 document.getElementById("prev").onclick = function () { go(-1); };
