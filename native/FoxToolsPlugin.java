@@ -46,6 +46,33 @@ public class FoxToolsPlugin extends Plugin {
     @Override
     public void load() {
         schedule();
+        if (FastCheckService.isEnabled(getContext())) {
+            try {
+                FastCheckService.setEnabled(getContext(), true);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    @PluginMethod
+    public void setFastMode(PluginCall call) {
+        boolean on = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+        try {
+            FastCheckService.setEnabled(getContext(), on);
+            if (on && Build.VERSION.SDK_INT >= 23) {
+                android.os.PowerManager pm = (android.os.PowerManager) getContext().getSystemService(android.content.Context.POWER_SERVICE);
+                if (!pm.isIgnoringBatteryOptimizations(getContext().getPackageName())) {
+                    Intent i = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getContext().getPackageName()));
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(i);
+                }
+            }
+            JSObject r = new JSObject();
+            r.put("fast", FastCheckService.isEnabled(getContext()));
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("Schnellmodus: " + e.getMessage());
+        }
     }
 
     private void schedule() {
@@ -67,6 +94,7 @@ public class FoxToolsPlugin extends Plugin {
             JSONObject last = TicketChecker.getLast(getContext());
             if (last != null) r.put("last", JSObject.fromJSONObject(last));
             r.put("notifications", TicketChecker.notificationsAllowed(getContext()));
+            r.put("fast", FastCheckService.isEnabled(getContext()));
             call.resolve(r);
         } catch (Exception e) {
             call.reject(e.getMessage());
