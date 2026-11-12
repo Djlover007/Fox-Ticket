@@ -22,6 +22,14 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
+import androidx.core.content.FileProvider;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -149,5 +157,67 @@ public class FoxToolsPlugin extends Plugin {
             r.put("browser", "auswahl");
         }
         call.resolve(r);
+    }
+
+    /** Lädt die neue APK herunter und öffnet den Android-Installationsdialog. */
+    @PluginMethod
+    public void installUpdate(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null) {
+            call.reject("url fehlt");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 26 && !getContext().getPackageManager().canRequestPackageInstalls()) {
+            try {
+                Intent i = new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getContext().getPackageName()));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i);
+            } catch (Exception ignored) {
+            }
+            JSObject r = new JSObject();
+            r.put("needsPermission", true);
+            call.resolve(r);
+            return;
+        }
+        new Thread(() -> {
+            HttpURLConnection con = null;
+            try {
+                File dir = new File(getContext().getCacheDir(), "updates");
+                dir.mkdirs();
+                File apk = new File(dir, "Fox-Ticket.apk");
+                String next = url;
+                for (int hop = 0; hop < 5; hop++) {
+                    con = (HttpURLConnection) new URL(next).openConnection();
+                    con.setInstanceFollowRedirects(false);
+                    con.setConnectTimeout(20000);
+                    con.setReadTimeout(60000);
+                    int code = con.getResponseCode();
+                    if (code >= 300 && code < 400 && con.getHeaderField("Location") != null) {
+                        next = new URL(new URL(next), con.getHeaderField("Location")).toString();
+                        con.disconnect();
+                        continue;
+                    }
+                    if (code != 200) throw new Exception("HTTP " + code);
+                    break;
+                }
+                try (InputStream in = con.getInputStream(); FileOutputStream out = new FileOutputStream(apk)) {
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                }
+                Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
+                Intent install = new Intent(Intent.ACTION_VIEW);
+                install.setDataAndType(uri, "application/vnd.android.package-archive");
+                install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(install);
+                JSObject r = new JSObject();
+                r.put("started", true);
+                call.resolve(r);
+            } catch (Exception e) {
+                call.reject("Update fehlgeschlagen: " + e.getMessage());
+            } finally {
+                if (con != null) con.disconnect();
+            }
+        }).start();
     }
 }

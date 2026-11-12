@@ -42,7 +42,7 @@ h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
 </head>
 <body>
 <div class="wrap">
-  <div id="upd" class="upd" hidden><span>Neue Version verfügbar</span><a id="updlink" target="_blank" rel="noopener" href="#">Aktualisieren</a></div>
+  <div id="upd" class="upd" hidden><span id="updtext">Neue Version verfügbar</span><a id="updlink" href="#">Aktualisieren</a></div>
   <header><span>🦊</span><h1>Fox Ticket</h1></header>
   <p class="sub" id="last">Noch nicht geprüft</p>
 
@@ -52,9 +52,9 @@ h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
   <button class="btn light" id="perm" hidden>🔔 Benachrichtigungen erlauben</button>
   <button class="btn light" id="test">Test-Benachrichtigung senden</button>
 
-  <h2>Künstler hinzufügen</h2>
+  <h2>Künstler oder Termin hinzufügen</h2>
   <div class="add">
-    <input id="url" type="url" placeholder="eventim.de/artist/… Link einfügen">
+    <input id="url" type="url" placeholder="Eventim-Link (Künstler oder Termin)">
     <button id="addbtn">+</button>
   </div>
   <p class="err" id="err" hidden></p>
@@ -102,6 +102,14 @@ function render() {
     var st = '<p class="st">Noch nicht geprüft</p>', evs = "";
     if (r) {
       if (!r.ok) st = '<p class="st warn">⚠️ ' + esc(r.message || "Fehler") + "</p>";
+      else if (r.type === "event") {
+        var buy = r.status === "InStock" || r.status === "LimitedAvailability";
+        st = '<p class="st ' + (buy ? "ok" : "warn") + '">' + (buy ? "🎟️ " : "⏳ ") + esc(r.statusText) + (r.changed ? ' <span class="new" style="background:var(--fox);color:#fff;border-radius:8px;padding:1px 6px;font-size:11px">GEÄNDERT</span>' : "") + "</p>";
+        evs = r.events.map(function (e) {
+          var info = [fmtDate(e.date), e.place].filter(Boolean).join(" · ");
+          return info ? '<a class="ev" href="#" data-url="' + esc(e.link) + '">' + esc(e.title) + "<small>" + esc(info) + "</small></a>" : "";
+        }).join("");
+      }
       else if (!r.events.length) st = '<p class="st">Keine Termine – ich passe weiter auf 👀</p>';
       else {
         st = '<p class="st ok">✅ ' + r.events.length + (r.events.length === 1 ? " Termin" : " Termine") + " gefunden</p>";
@@ -155,12 +163,13 @@ $("list").onclick = function (ev) {
 };
 $("addbtn").onclick = function () {
   var v = $("url").value.trim();
-  var m = v.match(/eventim\.[a-z.]+\/artist\/([a-z0-9-]+)/i);
-  if (!m) { alertErr("Bitte einen Link wie eventim.de/artist/name/ einfügen"); return; }
-  var slug = m[1].toLowerCase();
-  if (state.watch.some(function (w) { return w.url.indexOf("/artist/" + slug + "/") >= 0; })) { alertErr("Ist schon in der Liste"); return; }
-  var name = slug.split("-").map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(" ");
-  state.watch.push({ name: name, url: "https://www.eventim.de/artist/" + slug + "/" });
+  var m = v.match(/eventim\.[a-z.]+\/(artist|event)\/([a-z0-9-]+)/i);
+  if (!m) { alertErr("Bitte einen Eventim-Link einfügen (…/artist/… oder …/event/…)"); return; }
+  var kind = m[1].toLowerCase(), slug = m[2].toLowerCase();
+  var url = "https://www.eventim.de/" + kind + "/" + slug + "/";
+  if (state.watch.some(function (w) { return w.url.split("?")[0] === url; })) { alertErr("Ist schon in der Liste"); return; }
+  var name = slug.replace(/-\d+$/, "").split("-").map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(" ");
+  state.watch.push({ name: name, url: url });
   $("url").value = "";
   saveWatch().then(check);
 };
@@ -177,6 +186,21 @@ $("perm").onclick = function () {
   }).catch(function (e) { alertErr(e.message); });
 };
 
+var UPDATE_URL = null;
+
+function installUpdate() {
+  if (!UPDATE_URL) return;
+  if (!NATIVE) { window.open(UPDATE_URL, "_blank"); return; }
+  $("updtext").textContent = "Update wird geladen …";
+  call("installUpdate", { url: UPDATE_URL }).then(function (r) {
+    if (r && r.needsPermission) {
+      $("updtext").textContent = "Bitte „Apps aus dieser Quelle zulassen“ einschalten, dann zurück und tippen";
+    } else {
+      $("updtext").textContent = "Jetzt im Fenster auf „Aktualisieren“ tippen";
+    }
+  }).catch(function (e) { $("updtext").textContent = e.message; });
+}
+
 function checkUpdate() {
   var cur = window.APP_BUILD || 0;
   $("ver").textContent = cur ? "Version 1." + cur : "";
@@ -186,12 +210,14 @@ function checkUpdate() {
     var n = parseInt(String(d.tag_name).replace(/\D/g, ""), 10);
     if (n > cur) {
       var a = (d.assets || []).filter(function (x) { return /\.apk$/i.test(x.name); })[0];
-      $("updlink").href = a ? a.browser_download_url : d.html_url;
-      $("updlink").onclick = function (ev) { ev.preventDefault(); openUrl(this.href); };
+      UPDATE_URL = a ? a.browser_download_url : "https://github.com/" + REPO + "/releases/latest/download/Fox-Ticket.apk";
+      $("updtext").textContent = "Version 1." + n + " verfügbar";
       $("upd").hidden = false;
+      installUpdate(); // automatisch starten
     }
   }).catch(function () {});
 }
+$("updlink").onclick = function (ev) { ev.preventDefault(); installUpdate(); };
 
 checkUpdate();
 load().then(function () {

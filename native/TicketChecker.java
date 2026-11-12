@@ -257,6 +257,76 @@ public class TicketChecker {
         return r;
     }
 
+    static boolean isEvent(String url) {
+        return url != null && url.contains("/event/");
+    }
+
+    static String statusText(String av) {
+        switch (av) {
+            case "InStock": return "Tickets verfügbar";
+            case "LimitedAvailability": return "Nur noch wenige Tickets";
+            case "SoldOut": return "Ausverkauft";
+            case "PreOrder": case "PreSale": return "Vorverkauf noch nicht gestartet";
+            case "OutOfStock": return "Gerade keine Tickets";
+            default: return av.isEmpty() ? "Status unbekannt" : av;
+        }
+    }
+
+    static boolean buyable(String av) {
+        return "InStock".equals(av) || "LimitedAvailability".equals(av) || "OnlineOnly".equals(av);
+    }
+
+    /** Einzelnen Termin prüfen: Ticketstatus erkennen. */
+    static JSONObject checkEvent(JSONObject item) throws Exception {
+        String url = item.optString("url").split("\\?")[0];
+        JSONObject r = new JSONObject();
+        r.put("name", item.optString("name"));
+        r.put("url", item.optString("url"));
+        r.put("type", "event");
+        r.put("ok", false);
+        Page page = fetch(url);
+        String detail;
+        JSONArray events = new JSONArray();
+        String av = "";
+        if (page.error != null) {
+            detail = "Eventim: " + page.error;
+        } else if (looksBlocked(page)) {
+            detail = "Eventim blockiert (HTTP " + page.status + ")";
+        } else if (page.status >= 200 && page.status < 400) {
+            r.put("ok", true);
+            Matcher id = EVENT_LINK.matcher(url);
+            String eid = id.find() ? id.group(1).toLowerCase(Locale.ROOT) : "";
+            JSONArray found = extract(page.text, eid);
+            JSONObject ev = null;
+            for (int i = 0; i < found.length(); i++) {
+                JSONObject f = found.optJSONObject(i);
+                if (f.has("date") && (ev == null || f.optString("link").contains(eid))) ev = f;
+            }
+            if (ev == null) {
+                ev = new JSONObject();
+                ev.put("link", url.endsWith("/") ? url : url + "/");
+                ev.put("title", item.optString("name"));
+            }
+            av = ev.optString("availability", "");
+            if (av.isEmpty()) {
+                String low = page.text.toLowerCase(Locale.ROOT);
+                if (low.contains("\"soldout\":true") || low.contains("ausverkauft")) av = "SoldOut";
+                else if (low.contains("in den warenkorb") || low.contains("tickets sichern") || low.contains("\"bookable\":true")) av = "InStock";
+            }
+            ev.put("availability", av);
+            events.put(ev);
+            detail = "Seite geladen (" + (page.text.length() / 1024) + " KB)";
+        } else {
+            detail = "Eventim: HTTP " + page.status;
+        }
+        r.put("events", events);
+        r.put("status", av);
+        r.put("statusText", statusText(av));
+        r.put("detail", detail);
+        r.put("message", r.optBoolean("ok") ? "" : "Eventim nicht erreichbar – nächster Versuch später");
+        return r;
+    }
+
     public static synchronized JSONObject run(Context c, boolean notify) throws Exception {
         JSONArray watch = getWatch(c);
         JSONObject known;
@@ -270,6 +340,28 @@ public class TicketChecker {
         for (int i = 0; i < watch.length(); i++) {
             JSONObject item = watch.optJSONObject(i);
             if (item == null) continue;
+            if (isEvent(item.optString("url"))) {
+                JSONObject r = checkEvent(item);
+                if (r.optBoolean("ok")) {
+                    String key = "event:" + item.optString("url").split("\\?")[0];
+                    String before = known.optString(key, null);
+                    String now = r.optString("status");
+                    r.put("changed", before != null && !before.equals(now));
+                    if (notify && !now.equals(before) && (before != null || buyable(now))) {
+                        newCount++;
+                        JSONObject ev = r.optJSONArray("events").optJSONObject(0);
+                        String body = statusText(now);
+                        if (ev != null && ev.optString("date").length() >= 10) {
+                            String d = ev.optString("date");
+                            body = d.substring(8, 10) + "." + d.substring(5, 7) + "." + d.substring(0, 4) + " · " + body;
+                        }
+                        showNotification(c, 2000 + i, (buyable(now) ? "🎟️ Tickets! " : "ℹ️ ") + item.optString("name"), body);
+                    }
+                    known.put(key, now);
+                }
+                results.put(r);
+                continue;
+            }
             JSONObject r = checkArtist(item);
             if (r.optBoolean("ok")) {
                 String key = slugOf(item.optString("url"));
