@@ -64,7 +64,8 @@ h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
 var REPO = "Djlover007/Fox-Ticket";
 var LABEL = "de.fox.ticket.check";
 var $ = function (id) { return document.getElementById(id); };
-var BR = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundRunner;
+var CAP = window.Capacitor;
+var BR = CAP && ((CAP.Plugins && CAP.Plugins.BackgroundRunner) || (CAP.registerPlugin && CAP.isNativePlatform && CAP.isNativePlatform() ? CAP.registerPlugin("BackgroundRunner") : null));
 var state = { watch: [], last: null };
 
 function call(event, details) {
