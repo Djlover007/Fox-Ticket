@@ -3,6 +3,7 @@ name: APK bauen und veröffentlichen
 on:
   push:
     branches: [main, master]
+    paths-ignore: ["windows/**", ".github/workflows/build-windows.yml"]
   workflow_dispatch:
 
 permissions:

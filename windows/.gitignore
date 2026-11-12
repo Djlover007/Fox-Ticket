@@ -1,0 +1,5 @@
+version.py
+dist/
+build/
+*.spec
+__pycache__/

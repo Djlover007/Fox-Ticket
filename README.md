@@ -18,3 +18,10 @@ Bei jedem Upload auf `main` baut GitHub Actions die App und veröffentlicht sie 
 
 ## Technik
 Capacitor 7 + eigener Android-Code in `native/` (Prüf-Logik, WorkManager-Hintergrundjob, Benachrichtigungen, Links in Kiwi Browser öffnen). Die Oberfläche steckt in `www/index.html`.
+
+## Windows-Version
+Ordner `windows/`: Python-Programm (tkinter + Playwright), steuert den installierten **Microsoft Edge**.
+
+- Neueste EXE: unter [Releases](https://github.com/Djlover007/Fox-Ticket/releases) den neuesten Eintrag „Fox Ticket Windows …“ → `FoxTicket.exe`
+- Gleiche Funktionen wie die App: Künstler/Termine überwachen, Kategorien wählen, Auto-Warenkorb, Alarm, Eventim-Anmeldung, Prüfintervall ab 2 Minuten, Autostart, Selbst-Update
+- Daten und Edge-Profil liegen in `%APPDATA%\FoxTicket`

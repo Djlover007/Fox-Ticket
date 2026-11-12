@@ -27,7 +27,7 @@
   function isPlus(b) { var s = t(b); return s === "+" || /(erhöhen|mehr tickets|increase|plus|hinzufügen)/.test(s) && s.length < 40; }
   // Warenkorb-Knopf: "In den Warenkorb" oder Eventim-Stil "1 Ticket, € 122,90"
   // Nur der Kauf-Knopf ("1 Ticket, € 122,90" / "In den Warenkorb"), NICHT der Warenkorb-Link oben im Kopf
-  function isTicketBtn(b) { return /\d+\s*tickets?\s*,?\s*€\s*[\d.,]+/.test(t(b)); }
+  function isTicketBtn(b) { return /\d+\s*tickets?\s*,?\s*(€|eur)?\S{0,3}\s*\d+[.,]\d{2}/.test(t(b)); }
   function isCart(b) { var s = t(b); return isTicketBtn(b) || /in den warenkorb|warenkorb legen/.test(s); }
   var log = [];
   window.__foxCart = "läuft";
