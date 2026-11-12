@@ -114,7 +114,7 @@ public class FoxToolsPlugin extends Plugin {
     public void checkNow(PluginCall call) {
         new Thread(() -> {
             try {
-                JSONObject state = TicketChecker.run(getContext(), true);
+                JSONObject state = TicketChecker.run(getContext(), true, true);
                 call.resolve(JSObject.fromJSONObject(state));
             } catch (Exception e) {
                 call.reject("Prüfen fehlgeschlagen: " + e.getMessage());
