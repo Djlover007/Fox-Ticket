@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PROTOTYP · Fox Ticket Startbildschirm</title>
+<!--
+  PROTOTYP – Wegwerf-Code, nicht für die App.
+  Frage: Wie soll der Startbildschirm von Fox Ticket aufgebaut sein?
+  Drei strukturell verschiedene Varianten, umschaltbar über ?variant=A|B|C
+  und die Leiste unten. Läuft mit Beispieldaten (keine Verbindung zur App-Logik),
+  weil die echten Daten nur über das Capacitor-Plugin im Handy kommen.
+  Farben und Schrift wie www/index.html.
+-->
+<style>
+:root{--bg:#f3ecfb;--card:#fff;--text:#2a1640;--muted:#6f5d84;--accent:#7b2fd1;--fox:#f28c28;--chip:#e7daf6;--ok:#1f9d55;--warn:#c27c0e;--bad:#d33;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#150d20;--card:#22172f;--text:#f1e9fb;--muted:#a493b8;--accent:#9d5cf0;--chip:#33244a;--ok:#3ccf7a;--warn:#f0b03c;color-scheme:dark}}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh;padding-bottom:110px}
+.wrap{max-width:560px;margin:0 auto;padding:16px}
+button{font:inherit;cursor:pointer}
+.muted{color:var(--muted)}
+.proto-intro{max-width:560px;margin:0 auto;padding:10px 16px 0;font-size:12px;color:var(--muted)}
+.proto-intro b{color:var(--fox)}
+
+/* ── Variante A: Ampel-Dashboard ───────────────────────────── */
+.a-hero{border-radius:28px;padding:22px 20px;color:#fff;background:linear-gradient(135deg,var(--ok),#147a41);position:relative;overflow:hidden}
+.a-hero.alarm{background:linear-gradient(135deg,var(--fox),#d4600a)}
+.a-hero .fox{position:absolute;right:-6px;top:-10px;font-size:92px;opacity:.18}
+.a-hero small{opacity:.85;font-size:13px}
+.a-hero h1{font-size:28px;line-height:1.15;margin:6px 0 4px}
+.a-hero p{font-size:15px;opacity:.95}
+.a-hero .act{display:flex;gap:8px;margin-top:16px}
+.a-hero .act button{flex:1;border:0;border-radius:14px;padding:12px;background:rgba(255,255,255,.22);color:#fff;font-weight:600}
+.a-hero .act button.solid{background:#fff;color:#d4600a}
+.a-head{display:flex;align-items:center;justify-content:space-between;margin:22px 4px 8px}
+.a-head h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.a-head button{border:0;background:none;color:var(--accent);font-weight:600}
+.a-row{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:18px;padding:14px;margin-bottom:8px}
+.a-dot{width:12px;height:12px;border-radius:50%;flex:none}
+.a-row .t{flex:1;min-width:0}
+.a-row .t b{display:block;font-size:16px}
+.a-row .t span{font-size:13px;color:var(--muted)}
+.a-row .chev{color:var(--muted);font-size:20px}
+.a-badge{font-size:11px;font-weight:700;border-radius:8px;padding:2px 7px;background:var(--fox);color:#fff;margin-left:6px;vertical-align:2px}
+.a-fab{position:fixed;right:20px;bottom:86px;width:58px;height:58px;border-radius:20px;border:0;background:var(--accent);color:#fff;font-size:28px;box-shadow:0 6px 20px rgba(123,47,209,.4)}
+.a-sheet{position:fixed;inset:0;background:rgba(20,8,35,.45);display:flex;align-items:flex-end;z-index:20}
+.a-sheet>div{background:var(--card);width:100%;max-width:560px;margin:0 auto;border-radius:26px 26px 0 0;padding:18px 18px 40px;max-height:80vh;overflow:auto}
+.a-sheet h3{font-size:18px;margin-bottom:10px}
+.a-set{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--chip)}
+.a-set span{flex:1}.a-set small{display:block;color:var(--muted);font-size:12px}
+.a-set i{font-style:normal;color:var(--muted)}
+
+/* ── Variante B: Tabs unten ────────────────────────────────── */
+.b-top{display:flex;align-items:center;gap:10px;padding:6px 4px 14px}
+.b-top h1{font-size:22px;flex:1}
+.b-top .sync{border:0;background:var(--chip);color:var(--text);border-radius:12px;padding:8px 12px;font-size:14px}
+.b-meta{font-size:13px;color:var(--muted);margin:-8px 4px 14px}
+.b-card{background:var(--card);border-radius:22px;padding:16px;margin-bottom:12px}
+.b-card .h{display:flex;align-items:center;gap:10px}
+.b-card .h b{flex:1;font-size:18px}
+.b-pill{font-size:12px;font-weight:600;border-radius:999px;padding:4px 10px}
+.b-pill.ok{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.b-pill.warn{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.b-pill.idle{background:var(--chip);color:var(--muted)}
+.b-tl{margin-top:12px;border-left:2px solid var(--chip);padding-left:14px}
+.b-tl div{position:relative;padding:6px 0}
+.b-tl div:before{content:"";position:absolute;left:-20px;top:12px;width:10px;height:10px;border-radius:50%;background:var(--chip)}
+.b-tl div.hot:before{background:var(--fox)}
+.b-tl b{font-size:15px}.b-tl small{display:block;color:var(--muted);font-size:13px}
+.b-cart{margin-top:12px;display:flex;align-items:center;gap:8px;font-size:13px;background:var(--chip);border-radius:12px;padding:8px 10px}
+.b-tabs{position:fixed;left:0;right:0;bottom:0;background:var(--card);display:flex;justify-content:center;border-top:1px solid var(--chip);padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px));z-index:5}
+.b-tabs button{flex:1;max-width:140px;border:0;background:none;color:var(--muted);padding:6px 0;font-size:12px}
+.b-tabs button span{display:block;font-size:22px}
+.b-tabs button.on{color:var(--accent);font-weight:700}
+.b-hist p{padding:10px 0;border-bottom:1px solid var(--chip);font-size:14px}
+.b-hist p small{display:block;color:var(--muted);font-size:12px}
+.b-group{background:var(--card);border-radius:18px;padding:4px 16px;margin-bottom:12px}
+.b-group h3{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:12px 0 4px}
+.b-group .a-set:last-child{border-bottom:0}
+
+/* ── Variante C: Termin-Zeitstrahl ─────────────────────────── */
+.c-top{display:flex;align-items:baseline;gap:8px;padding:4px 4px 10px}
+.c-top h1{font-size:30px;letter-spacing:-.02em}
+.c-top span{color:var(--muted);font-size:14px}
+.c-chips{display:flex;gap:8px;overflow-x:auto;padding:2px 4px 14px;scrollbar-width:none}
+.c-chips button{flex:none;border:0;border-radius:999px;padding:8px 14px;background:var(--card);color:var(--text);font-size:14px}
+.c-chips button.on{background:var(--text);color:var(--bg)}
+.c-chips button.add{background:none;border:2px dashed var(--chip);color:var(--muted)}
+.c-month{font-size:13px;font-weight:700;color:var(--muted);margin:16px 4px 8px;text-transform:uppercase;letter-spacing:.06em}
+.c-ev{display:flex;gap:14px;background:var(--card);border-radius:18px;padding:12px 14px;margin-bottom:8px;align-items:center}
+.c-date{width:52px;flex:none;text-align:center;border-radius:14px;background:var(--chip);padding:6px 0}
+.c-date b{display:block;font-size:22px;line-height:1}
+.c-date small{font-size:11px;color:var(--muted);text-transform:uppercase}
+.c-ev.hot .c-date{background:var(--fox);color:#fff}.c-ev.hot .c-date small{color:#fff}
+.c-ev .t{flex:1;min-width:0}
+.c-ev .t b{font-size:15px;display:block}
+.c-ev .t span{font-size:13px;color:var(--muted)}
+.c-st{font-size:12px;font-weight:700;text-align:right;flex:none}
+.c-st.ok{color:var(--ok)}.c-st.warn{color:var(--warn)}.c-st.idle{color:var(--muted)}
+.c-empty{background:var(--card);border-radius:18px;padding:16px;color:var(--muted);font-size:14px;margin-bottom:8px}
+.c-bar{position:fixed;left:0;right:0;bottom:64px;display:flex;justify-content:center;pointer-events:none;z-index:5}
+.c-bar div{pointer-events:auto;display:flex;gap:8px;background:var(--card);border-radius:20px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.15)}
+.c-bar button{border:0;border-radius:14px;padding:11px 16px;background:var(--chip);color:var(--text);font-size:14px}
+.c-bar button.main{background:var(--accent);color:#fff;font-weight:600}
+
+/* ── Prototyp-Umschalter (nicht Teil des Designs) ─────────── */
+.sw{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom,0px));display:flex;align-items:center;gap:4px;background:#111;color:#fff;border-radius:999px;padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.35);z-index:50;font-size:13px;border:2px dashed #f28c28}
+.sw.raised{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+.sw button{border:0;background:#333;color:#fff;width:34px;height:34px;border-radius:50%;font-size:16px}
+.sw span{padding:0 10px;white-space:nowrap}
+.toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);background:#111;color:#fff;padding:10px 14px;border-radius:12px;font-size:13px;z-index:60}
+</style>
+</head>
+<body>
+<p class="proto-intro"><b>PROTOTYP</b> · Beispieldaten · Wie soll der Startbildschirm aussehen? Unten zwischen den Varianten blättern.</p>
+<div id="app"></div>
+<div class="sw" id="sw"><button id="prev" aria-label="Vorige Variante">‹</button><span id="swlabel"></span><button id="next" aria-label="Nächste Variante">›</button></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+// ── Beispieldaten in der Form, die render() in index.html bekommt ──
+var DATA = {
+  lastCheck: "vor 4 Minuten",
+  nextCheck: "in 26 Minuten",
+  fast: false,
+  login: "Angemeldet als t…@gmail.com",
+  telegram: "Verbunden",
+  watch: [
+    { name: "Fall Out Boy", type: "artist", events: [
+      { day: "14", mon: "Mär", month: "März 2027", title: "Fall Out Boy – So Much For (Tour) Dust", place: "Lanxess Arena, Köln", status: "ok", statusText: "Tickets verfügbar", isNew: true },
+      { day: "16", mon: "Mär", month: "März 2027", title: "Fall Out Boy – So Much For (Tour) Dust", place: "Uber Arena, Berlin", status: "warn", statusText: "Ausverkauft" },
+      { day: "02", mon: "Apr", month: "April 2027", title: "Fall Out Boy", place: "Olympiahalle, München", status: "idle", statusText: "Vorverkauf ab 20.11." }
+    ]},
+    { name: "Fall Out Boy · Köln 14.03.", type: "event", autoCart: true, qty: 2, maxPrice: 95, events: [
+      { day: "14", mon: "Mär", month: "März 2027", title: "Kategorie 2 – Sitzplatz", place: "Lanxess Arena, Köln · 2 Tickets bis 95 €", status: "ok", statusText: "Im Warenkorb-Modus" }
+    ]},
+    { name: "Linkin Park", type: "artist", events: [] }
+  ],
+  history: [
+    { t: "00:31", text: "Neuer Termin: Fall Out Boy, Köln 14.03." },
+    { t: "00:31", text: "Tickets verfügbar: Köln 14.03." },
+    { t: "gestern", text: "Linkin Park hinzugefügt" },
+    { t: "11.11.", text: "Berlin 16.03. ausverkauft" }
+  ]
+};
+
+var VARIANTS = [
+  { key: "A", name: "Ampel-Dashboard" },
+  { key: "B", name: "Tabs unten" },
+  { key: "C", name: "Termin-Zeitstrahl" }
+];
+
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+function toast(t) { var e = document.getElementById("toast"); e.textContent = t; e.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(function () { e.hidden = true; }, 1600); }
+function allEvents() { var out = []; DATA.watch.forEach(function (w) { w.events.forEach(function (e) { out.push(Object.assign({ artist: w.name }, e)); }); }); return out; }
+function hot() { return allEvents().filter(function (e) { return e.status === "ok"; }); }
+
+// ── Variante A: großer Status oben, kompakte Liste, Einstellungen im Sheet ──
+var A = { sheet: false };
+function renderA() {
+  var h = hot(), alarm = h.length > 0;
+  var rows = DATA.watch.map(function (w) {
+    var n = w.events.length, ok = w.events.some(function (e) { return e.status === "ok"; }), isNew = w.events.some(function (e) { return e.isNew; });
+    var color = ok ? "var(--ok)" : n ? "var(--warn)" : "var(--chip)";
+    var sub = w.type === "event" ? "🛒 Auto-Warenkorb · " + w.qty + " Tickets bis " + w.maxPrice + " €" : n ? n + (n === 1 ? " Termin" : " Termine") + (ok ? " · Tickets verfügbar" : "") : "Keine Termine – ich passe auf 👀";
+    return '<div class="a-row"><div class="a-dot" style="background:' + color + '"></div><div class="t"><b>' + esc(w.name) + (isNew ? '<span class="a-badge">NEU</span>' : "") + "</b><span>" + esc(sub) + '</span></div><span class="chev">›</span></div>';
+  }).join("");
+  var sheet = A.sheet ? '<div class="a-sheet" data-close="1"><div>' +
+    "<h3>⚙️ Einstellungen</h3>" +
+    set("⚡ Schnellmodus", "alle 2 Minuten, braucht mehr Akku", DATA.fast ? "An" : "Aus") +
+    set("🔑 Eventim-Anmeldung", DATA.login, "›") +
+    set("✈️ Telegram-Alarm", DATA.telegram, "›") +
+    set("🔔 Test-Benachrichtigung", "", "›") +
+    set("🔊 Test-Alarm", "", "›") +
+    set("📜 Verlauf", DATA.history.length + " Einträge", "›") +
+    "</div></div>" : "";
+  return '<div class="wrap">' +
+    '<div class="a-hero' + (alarm ? " alarm" : "") + '"><div class="fox">🦊</div><small>Zuletzt geprüft ' + DATA.lastCheck + "</small>" +
+    "<h1>" + (alarm ? "🎟️ Tickets verfügbar!" : "Alles ruhig") + "</h1>" +
+    "<p>" + (alarm ? esc(h[0].place) + " · " + esc(h[0].day + ". " + h[0].mon) : "Nächste Prüfung " + DATA.nextCheck) + "</p>" +
+    '<div class="act">' + (alarm ? '<button class="solid" data-t="Öffnet Eventim">Zu Eventim</button>' : "") + '<button data-t="Prüft jetzt">🔍 Jetzt prüfen</button></div></div>' +
+    '<div class="a-head"><h2>Überwacht</h2><button data-sheet="1">⚙️ Einstellungen</button></div>' + rows +
+    '</div><button class="a-fab" data-t="Eventim-Link einfügen">+</button>' + sheet;
+  function set(t, s, r) { return '<div class="a-set"><span>' + t + (s ? "<small>" + esc(s) + "</small>" : "") + "</span><i>" + r + "</i></div>"; }
+}
+
+// ── Variante B: drei Tabs unten, Karten mit Zeitstrahl ──
+var B = { tab: "watch" };
+function renderB() {
+  var body;
+  if (B.tab === "watch") {
+    body = DATA.watch.map(function (w) {
+      var ok = w.events.some(function (e) { return e.status === "ok"; });
+      var pill = ok ? '<span class="b-pill ok">🎟️ Tickets</span>' : w.events.length ? '<span class="b-pill warn">⏳ Warten</span>' : '<span class="b-pill idle">👀 Keine Termine</span>';
+      var tl = w.events.length ? '<div class="b-tl">' + w.events.map(function (e) {
+        return '<div class="' + (e.status === "ok" ? "hot" : "") + '"><b>' + esc(e.day + ". " + e.mon) + " · " + esc(e.place) + (e.isNew ? ' <span class="a-badge">NEU</span>' : "") + "</b><small>" + esc(e.statusText) + "</small></div>";
+      }).join("") + "</div>" : "";
+      var cart = w.type === "event" ? '<div class="b-cart">🛒 <span style="flex:1">Auto-Warenkorb an · ' + w.qty + " Tickets · max. " + w.maxPrice + " €</span><b>An</b></div>" : "";
+      return '<div class="b-card"><div class="h"><b>' + esc(w.name) + "</b>" + pill + "</div>" + tl + cart + "</div>";
+    }).join("") + '<div class="b-card" style="text-align:center;color:var(--accent);font-weight:600" data-t="Eventim-Link einfügen">+ Künstler oder Termin hinzufügen</div>';
+  } else if (B.tab === "hist") {
+    body = '<div class="b-card b-hist">' + DATA.history.map(function (h) { return "<p>" + esc(h.text) + "<small>" + esc(h.t) + "</small></p>"; }).join("") + "</div>";
+  } else {
+    body = group("Prüfen", [["⚡ Schnellmodus", "alle 2 Minuten, braucht mehr Akku", DATA.fast ? "An" : "Aus"], ["🔔 Benachrichtigungen", "erlaubt", "›"]]) +
+      group("Konten", [["🔑 Eventim", DATA.login, "›"], ["✈️ Telegram", DATA.telegram, "›"]]) +
+      group("Testen", [["🔔 Test-Benachrichtigung", "", "›"], ["🔊 Test-Alarm", "", "›"]]);
+  }
+  var titles = { watch: "Überwachung", hist: "Verlauf", set: "Einstellungen" };
+  return '<div class="wrap"><div class="b-top"><span style="font-size:26px">🦊</span><h1>' + titles[B.tab] + "</h1>" +
+    (B.tab === "watch" ? '<button class="sync" data-t="Prüft jetzt">🔍 Prüfen</button>' : "") + "</div>" +
+    (B.tab === "watch" ? '<p class="b-meta">Zuletzt geprüft ' + DATA.lastCheck + " · nächste Prüfung " + DATA.nextCheck + "</p>" : "") + body + "</div>" +
+    '<nav class="b-tabs">' + tab("watch", "🎟️", "Überwachung") + tab("hist", "📜", "Verlauf") + tab("set", "⚙️", "Einstellungen") + "</nav>";
+  function tab(k, i, l) { return '<button data-tab="' + k + '" class="' + (B.tab === k ? "on" : "") + '"><span>' + i + "</span>" + l + "</button>"; }
+  function group(t, items) { return '<div class="b-group"><h3>' + t + "</h3>" + items.map(function (x) { return '<div class="a-set"><span>' + x[0] + (x[1] ? "<small>" + esc(x[1]) + "</small>" : "") + "</span><i>" + x[2] + "</i></div>"; }).join("") + "</div>"; }
+}
+
+// ── Variante C: alle Termine chronologisch, Künstler als Filter ──
+var C = { filter: "Alle" };
+function renderC() {
+  var names = ["Alle"].concat(DATA.watch.filter(function (w) { return w.type === "artist"; }).map(function (w) { return w.name; }));
+  var evs = allEvents().filter(function (e) { return e.artist.indexOf("·") < 0 && (C.filter === "Alle" || e.artist === C.filter); });
+  var html = "", month = "";
+  evs.forEach(function (e) {
+    if (e.month !== month) { month = e.month; html += '<div class="c-month">' + esc(month) + "</div>"; }
+    var lab = { ok: "TICKETS", warn: "AUSVERKAUFT", idle: "BALD" }[e.status];
+    html += '<div class="c-ev' + (e.status === "ok" ? " hot" : "") + '"><div class="c-date"><b>' + e.day + "</b><small>" + e.mon + '</small></div><div class="t"><b>' + esc(e.place.split(",")[0]) + (e.isNew ? '<span class="a-badge">NEU</span>' : "") + "</b><span>" + esc(e.artist) + " · " + esc(e.place.split(",")[1] || "") + '</span></div><div class="c-st ' + e.status + '">' + lab + "</div></div>";
+  });
+  var empty = DATA.watch.filter(function (w) { return w.type === "artist" && !w.events.length && (C.filter === "Alle" || C.filter === w.name); })
+    .map(function (w) { return '<div class="c-empty">👀 ' + esc(w.name) + ": noch keine Termine – ich passe auf.</div>"; }).join("");
+  var cart = DATA.watch.filter(function (w) { return w.type === "event"; }).map(function (w) {
+    return '<div class="c-month">Warenkorb-Wächter</div><div class="c-ev"><div class="c-date"><b>🛒</b><small>Auto</small></div><div class="t"><b>' + esc(w.name) + "</b><span>" + w.qty + " Tickets · bis " + w.maxPrice + ' €</span></div><div class="c-st ok">AN</div></div>';
+  }).join("");
+  return '<div class="wrap"><div class="c-top"><h1>Termine</h1><span>geprüft ' + DATA.lastCheck + "</span></div>" +
+    '<div class="c-chips">' + names.map(function (n) { return '<button data-filter="' + esc(n) + '" class="' + (C.filter === n ? "on" : "") + '">' + esc(n) + "</button>"; }).join("") + '<button class="add" data-t="Eventim-Link einfügen">+ Künstler</button></div>' +
+    html + empty + (C.filter === "Alle" ? cart : "") + "</div>" +
+    '<div class="c-bar"><div><button class="main" data-t="Prüft jetzt">🔍 Jetzt prüfen</button><button data-t="Öffnet Verlauf">📜</button><button data-t="Öffnet Einstellungen">⚙️</button></div></div>';
+}
+
+// ── Umschalter ──
+var current = (new URLSearchParams(location.search).get("variant") || "A").toUpperCase();
+if (!VARIANTS.some(function (v) { return v.key === current; })) current = "A";
+function render() {
+  var app = document.getElementById("app");
+  app.innerHTML = current === "A" ? renderA() : current === "B" ? renderB() : renderC();
+  var v = VARIANTS.filter(function (x) { return x.key === current; })[0];
+  document.getElementById("swlabel").textContent = v.key + " · " + v.name;
+  document.getElementById("sw").className = "sw" + (current === "B" ? " raised" : "");
+}
+function go(step) {
+  var i = VARIANTS.findIndex(function (v) { return v.key === current; });
+  current = VARIANTS[(i + step + VARIANTS.length) % VARIANTS.length].key;
+  var u = new URL(location.href); u.searchParams.set("variant", current);
+  try { history.replaceState(null, "", u); } catch (e) {}
+  window.scrollTo(0, 0); render();
+}
+document.getElementById("prev").onclick = function () { go(-1); };
+document.getElementById("next").onclick = function () { go(1); };
+document.addEventListener("keydown", function (e) {
+  var t = e.target; if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if (e.key === "ArrowLeft") go(-1); if (e.key === "ArrowRight") go(1);
+});
+document.getElementById("app").onclick = function (e) {
+  var el = e.target.closest("[data-t],[data-sheet],[data-close],[data-tab],[data-filter]"); if (!el) return;
+  if (el.dataset.sheet) { A.sheet = true; return render(); }
+  if (el.dataset.close && e.target === el) { A.sheet = false; return render(); }
+  if (el.dataset.tab) { B.tab = el.dataset.tab; return render(); }
+  if (el.dataset.filter) { C.filter = el.dataset.filter; return render(); }
+  if (el.dataset.t) toast("Prototyp: " + el.dataset.t);
+};
+render();
+</script>
+</body>
+</html>
