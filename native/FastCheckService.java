@@ -56,7 +56,8 @@ public class FastCheckService extends Service {
     public static void setEnabled(Context c, boolean on) {
         TicketChecker.prefs(c).edit().putBoolean("fast", on).apply();
         Intent i = new Intent(c, FastCheckService.class);
-        if (on) ContextCompat.startForegroundService(c, i);
+        // Dauerdienst nur, wenn Prüfen im Hintergrund erlaubt ist; sonst prüft die offene App selbst
+        if (on && TicketChecker.backgroundOn(c)) ContextCompat.startForegroundService(c, i);
         else c.stopService(i);
     }
 

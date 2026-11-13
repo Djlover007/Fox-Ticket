@@ -16,6 +16,7 @@ public class TicketWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
+        if (!TicketChecker.backgroundOn(getApplicationContext())) return Result.success();
         try {
             TicketChecker.run(getApplicationContext(), true);
         } catch (Exception ignored) {

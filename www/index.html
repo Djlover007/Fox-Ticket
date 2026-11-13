@@ -160,7 +160,8 @@ body{padding-bottom:110px}
 
 <div class="sheet" id="setsheet" hidden><div>
   <div class="shead"><h3>⚙️ Einstellungen</h3><button data-close aria-label="Schließen">✕</button></div>
-  <label class="fast"><div>⚡ Schnellmodus: alle 2 Minuten<small>Läuft dauerhaft mit Anzeige in der Benachrichtigungsleiste, braucht mehr Akku</small></div><input type="checkbox" id="fast"></label>
+  <label class="fast"><div>🌙 Im Hintergrund weiterprüfen<small id="bgsub">Auch wenn die App geschlossen ist. Aus = Fox Ticket prüft nur, solange die App offen ist.</small></div><input type="checkbox" id="bg"></label>
+  <label class="fast"><div>⚡ Schnellmodus: alle 2 Minuten<small id="fastsub">Läuft dauerhaft mit Anzeige in der Benachrichtigungsleiste, braucht mehr Akku</small></div><input type="checkbox" id="fast"></label>
   <div class="login">
     <h3>🔑 Eventim-Anmeldung</h3>
     <p id="loginstate">Noch nicht geprüft</p>
@@ -283,11 +284,18 @@ function daysUntil(d) {
 }
 
 // Live-Anzeige oben: Schnellmodus mit Countdown bis zur nächsten Prüfung
-var live = { fast: false, next: 0, checking: false };
+var live = { fast: false, next: 0, checking: false, bg: true };
 function renderLive() {
   var last = state.last;
   $("livelast").textContent = last && last.time ? "zuletzt " + new Date(last.time).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "";
   if (live.checking) { $("live").className = "live"; $("livetxt").innerHTML = "<b>Prüfe gerade …</b>"; return; }
+  if (!live.bg) {
+    $("live").className = live.fast ? "live" : "live off";
+    var nx = state.last && state.last.time ? state.last.time + (live.fast ? 120000 : 1800000) - Date.now() : 0;
+    var s2 = Math.max(0, Math.round(nx / 1000));
+    $("livetxt").innerHTML = "<b>Nur bei offener App</b> · " + (live.fast ? "nächste in " + Math.floor(s2 / 60) + ":" + ("0" + s2 % 60).slice(-2) : "alle 30 Min.");
+    return;
+  }
   if (live.fast) {
     $("live").className = "live";
     var sec = Math.round((live.next - Date.now()) / 1000);
@@ -298,6 +306,20 @@ function renderLive() {
   }
 }
 setInterval(renderLive, 1000);
+
+// Hintergrund aus: Die offene App prüft selbst (alle 2 bzw. 30 Minuten), geschlossen passiert nichts
+setInterval(function () {
+  if (live.bg || live.checking || document.hidden || !state.watch.length) return;
+  var every = live.fast ? 120000 : 1800000;
+  if (!state.last || !state.last.time || Date.now() - state.last.time >= every) check();
+}, 5000);
+
+function showBg() {
+  $("bg").checked = live.bg;
+  $("fastsub").textContent = live.bg
+    ? "Läuft dauerhaft mit Anzeige in der Benachrichtigungsleiste, braucht mehr Akku"
+    : "Nur solange die App offen ist – keine Daueranzeige";
+}
 
 // Konfetti, wenn Tickets im Warenkorb gelandet sind
 function confetti() {
@@ -357,7 +379,7 @@ function renderHero(byUrl) {
   else if (fresh) { cls = "alarm"; title = "🆕 Neue Termine"; sub = fresh + (fresh === 1 ? " neuer Termin" : " neue Termine") + " bei " + freshName; }
   else if (!checked) { cls = ""; title = "Noch nicht geprüft"; sub = state.watch.length + " überwacht · tippe auf „Jetzt prüfen“"; }
   else if (errors === checked) { cls = "warn"; title = "⚠️ Prüfen fehlgeschlagen"; sub = "Details in der Liste unten"; }
-  else { cls = "ok"; title = "Alles ruhig"; sub = state.watch.length + " überwacht · " + ($("fast").checked ? "prüft alle 2 Minuten" : "prüft etwa alle 30 Minuten"); }
+  else { cls = "ok"; title = "Alles ruhig"; sub = state.watch.length + " überwacht · " + ($("fast").checked ? "prüft alle 2 Minuten" : "prüft etwa alle 30 Minuten") + (live.bg ? "" : " (nur bei offener App)"); }
   $("hero").className = "hero" + (cls ? " " + cls : "");
   $("herotitle").textContent = title;
   $("herosub").textContent = sub;
@@ -371,6 +393,8 @@ function load() {
     $("perm").hidden = !!s.notifications;
     $("fast").checked = !!s.fast;
     live.fast = !!s.fast;
+    live.bg = s.background !== false;
+    showBg();
     live.next = s.nextCheck || 0;
     var newest = (s.history || [])[0] || "";
     if (lastHist !== null && newest !== lastHist && newest.indexOf("im Warenkorb") >= 0) confetti();
@@ -446,6 +470,13 @@ $("list").onchange = function (ev) {
     state.watch[i].cats = list;
   }
   call("setWatch", { watch: state.watch }, 10000).catch(function (e) { alertErr(e.message); });
+};
+$("bg").onchange = function () {
+  var on = this.checked;
+  call("setBackground", { enabled: on }, 10000).then(function (r) {
+    live.bg = !!r.background; live.fast = !!r.fast; live.next = 0; showBg(); renderLive(); render();
+    alertErr(live.bg ? "Fox Ticket prüft jetzt auch, wenn die App geschlossen ist" : "Fox Ticket prüft jetzt nur noch, solange die App offen ist", true);
+  }).catch(function (e) { $("bg").checked = !on; alertErr(e.message); });
 };
 $("fast").onchange = function () {
   var on = this.checked;

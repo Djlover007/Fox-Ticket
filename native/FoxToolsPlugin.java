@@ -45,13 +45,37 @@ public class FoxToolsPlugin extends Plugin {
 
     @Override
     public void load() {
-        schedule();
-        if (FastCheckService.isEnabled(getContext())) {
+        applyBackground();
+    }
+
+    /** Hintergrund an: regelmäßiger Job + ggf. Schnellmodus-Dienst. Aus: beides stoppen. */
+    private void applyBackground() {
+        boolean bg = TicketChecker.backgroundOn(getContext());
+        if (bg) {
+            schedule();
+        } else {
             try {
-                FastCheckService.setEnabled(getContext(), true);
+                WorkManager.getInstance(getContext()).cancelUniqueWork("fox-ticket-check");
             } catch (Exception ignored) {
             }
         }
+        try {
+            boolean fast = FastCheckService.isEnabled(getContext());
+            if (bg && fast) FastCheckService.setEnabled(getContext(), true);
+            else getContext().stopService(new Intent(getContext(), FastCheckService.class));
+        } catch (Exception ignored) {
+        }
+    }
+
+    @PluginMethod
+    public void setBackground(PluginCall call) {
+        boolean on = Boolean.TRUE.equals(call.getBoolean("enabled", true));
+        TicketChecker.prefs(getContext()).edit().putBoolean("background", on).commit();
+        applyBackground();
+        JSObject r = new JSObject();
+        r.put("background", on);
+        r.put("fast", FastCheckService.isEnabled(getContext()));
+        call.resolve(r);
     }
 
     @PluginMethod
@@ -95,6 +119,7 @@ public class FoxToolsPlugin extends Plugin {
             if (last != null) r.put("last", JSObject.fromJSONObject(last));
             r.put("notifications", TicketChecker.notificationsAllowed(getContext()));
             r.put("fast", FastCheckService.isEnabled(getContext()));
+            r.put("background", TicketChecker.backgroundOn(getContext()));
             r.put("nextCheck", TicketChecker.prefs(getContext()).getLong("nextCheck", 0));
             r.put("cartLog", TicketChecker.prefs(getContext()).getString("cartLog", ""));
             r.put("login", JSObject.fromJSONObject(LoginManager.status(getContext())));

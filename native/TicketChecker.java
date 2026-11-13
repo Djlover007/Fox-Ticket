@@ -185,6 +185,11 @@ public class TicketChecker {
         return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
+    /** Darf die App prüfen, wenn sie geschlossen ist? (Schalter in den Einstellungen, Standard: ja) */
+    public static boolean backgroundOn(Context c) {
+        return prefs(c).getBoolean("background", true);
+    }
+
     public static JSONArray getWatch(Context c) {
         try {
             String s = prefs(c).getString("watch", null);
