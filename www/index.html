@@ -6,7 +6,8 @@
 <title>Fox Ticket</title>
 <style>
 :root{--bg:#f3ecfb;--card:#fff;--text:#2a1640;--muted:#6f5d84;--accent:#7b2fd1;--fox:#f28c28;--chip:#e7daf6;--ok:#1f9d55;--warn:#c27c0e;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#150d20;--card:#22172f;--text:#f1e9fb;--muted:#a493b8;--accent:#9d5cf0;--chip:#33244a;--ok:#3ccf7a;--warn:#f0b03c;color-scheme:dark}}
+@media (prefers-color-scheme:dark){:root{--bg:#120b1c;--card:#1f1530;--text:#f3ecfb;--muted:#b9a7d1;--accent:#9d5cf0;--chip:#2c2040;--ok:#3ccf7a;--warn:#f0b03c;color-scheme:dark}
+body{background:radial-gradient(120% 60% at 15% -10%,rgba(123,47,209,.45),transparent 60%),radial-gradient(90% 45% at 110% 0%,rgba(242,140,40,.22),transparent 60%),var(--bg) !important;background-attachment:fixed !important}}
 *{box-sizing:border-box;margin:0;padding:0}
 [hidden]{display:none!important}
 .dbg{font-size:12px;color:var(--muted);margin-top:4px}
@@ -62,9 +63,30 @@ h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
 .hist p{padding:5px 0;border-bottom:1px solid var(--chip);color:var(--muted)}
 .cart input[type=number]{width:64px;height:auto;border:0;border-radius:8px;padding:5px;background:var(--card);color:var(--text);font-size:14px}
 .err{color:#d33;font-size:14px;margin:8px 4px}
+/* Kopf mit Fuchs und Live-Anzeige */
+.brandbar{display:flex;align-items:center;gap:12px;margin:6px 2px 12px}
+.brandbar .fx{width:40px;height:40px;flex:none}
+.brandbar .fx.spin{animation:spin 1.1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.brandbar b{font-size:22px;letter-spacing:-.3px;flex:1}
+.live{display:flex;align-items:center;gap:10px;border-radius:14px;padding:10px 14px;margin:0 0 12px;font-size:13px;background:rgba(242,140,40,.12);border:1px solid rgba(242,140,40,.35)}
+.live.off{background:rgba(123,47,209,.10);border-color:rgba(123,47,209,.25)}
+.live .ld{width:9px;height:9px;border-radius:50%;background:var(--fox);flex:none;animation:pulse 1.8s infinite}
+.live.off .ld{background:var(--muted);animation:none}
+.live .lt{flex:1}.live .lt b{color:var(--fox)}
+.live .lz{color:var(--muted);font-size:12px}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(242,140,40,.7)}70%{box-shadow:0 0 0 9px rgba(242,140,40,0)}100%{box-shadow:0 0 0 0 rgba(242,140,40,0)}}
+/* Status-Streifen links an jeder Karte */
+.card.slim{border-left:6px solid var(--chip)}
+.card.slim.b-ok{border-left-color:var(--ok)}.card.slim.b-warn{border-left-color:var(--warn)}.card.slim.b-bad{border-left-color:#e5484d}.card.slim.b-art{border-left-color:var(--accent)}
+.cd,.row .t span.cd{color:var(--fox);font-weight:600}
+/* Konfetti */
+.confetti{position:fixed;inset:0;pointer-events:none;z-index:40;overflow:hidden}
+.confetti i{position:absolute;top:-14px;width:9px;height:14px;border-radius:2px;animation:fall 2.6s ease-in forwards}
+@keyframes fall{to{transform:translateY(105vh) rotate(720deg);opacity:.7}}
 /* Startbildschirm: Ampel-Dashboard */
 body{padding-bottom:110px}
-.hero{border-radius:28px;padding:22px 20px;color:#fff;background:linear-gradient(135deg,var(--accent),#5a1fa3);position:relative;overflow:hidden;margin-top:4px}
+.hero{border-radius:28px;padding:22px 20px;color:#fff;background:linear-gradient(135deg,#7b2fd1,#5a1fa3 55%,#c2560a);position:relative;overflow:hidden;margin-top:4px}
 .hero.ok{background:linear-gradient(135deg,var(--ok),#147a41)}
 .hero.alarm{background:linear-gradient(135deg,var(--fox),#d4600a)}
 .hero.warn{background:linear-gradient(135deg,#b06a0b,#8a4f05)}
@@ -103,6 +125,12 @@ body{padding-bottom:110px}
 <body>
 <div class="wrap">
   <div id="upd" class="upd" hidden><span id="updtext">Neue Version verfügbar</span><a id="updlink" href="#">Aktualisieren</a></div>
+
+  <div class="brandbar">
+    <svg id="foxlogo" class="fx" viewBox="0 0 40 40" aria-hidden="true"><path d="M6 6 L15 15 L25 15 L34 6 L33 22 Q30 33 20 35 Q10 33 7 22 Z" fill="#f28c28"/><path d="M12 22 Q20 33 28 22 Q24 29 20 29 Q16 29 12 22 Z" fill="#fff4e8"/><circle cx="15" cy="20" r="1.8" fill="#2a1640"/><circle cx="25" cy="20" r="1.8" fill="#2a1640"/><circle cx="20" cy="27" r="1.6" fill="#2a1640"/></svg>
+    <b>Fox Ticket</b>
+  </div>
+  <div class="live off" id="live"><span class="ld"></span><span class="lt" id="livetxt">Noch nicht geprüft</span><span class="lz" id="livelast"></span></div>
 
   <section class="hero" id="hero">
     <div class="fox">🦊</div>
@@ -195,6 +223,7 @@ function render() {
   var byUrl = {};
   ((last && last.results) || []).forEach(function (r) { byUrl[r.url] = r; });
   renderHero(byUrl);
+  renderLive();
   $("list").innerHTML = state.watch.map(function (w, i) {
     var r = byUrl[w.url];
     var sum = summary(w, r);
@@ -221,7 +250,8 @@ function render() {
         st = '<p class="st ok">✅ ' + r.events.length + (r.events.length === 1 ? " Termin" : " Termine") + " gefunden</p>";
         evs = r.events.map(function (e) {
           var isNew = (r.newLinks || []).indexOf(e.link) >= 0;
-          var info = [fmtDate(e.date), e.place, AV[e.availability] || e.availability].filter(Boolean).join(" · ");
+          var dl = daysUntil(e.date);
+          var info = [fmtDate(e.date), e.place, AV[e.availability] || e.availability, dl != null ? "noch " + dl + (dl === 1 ? " Tag" : " Tage") : ""].filter(Boolean).join(" · ");
           var watched = state.watch.some(function (x) { return x.url === e.link; });
           return '<div class="evrow"><a class="ev" href="#" data-url="' + esc(e.link) + '">' + esc(e.title) +
             (isNew ? '<span class="new">NEU</span>' : "") + (info ? "<small>" + esc(info) + "</small>" : "") + "</a>" +
@@ -230,7 +260,10 @@ function render() {
       }
     }
     var isOpen = !!opened[w.url];
-    return '<div class="card slim' + (isOpen ? " expanded" : "") + '"><div class="row" data-toggle="' + esc(w.url) + '"><div class="dot ' + sum.dot + '"></div><div class="t"><b>' + esc(w.name) + (sum.isNew ? '<span class="badge">NEU</span>' : "") + "</b><span>" + esc(sum.text) + '</span></div><span class="chev">›</span></div>' +
+    var band = sum.dot === "ok" ? " b-ok" : sum.dot === "bad" ? " b-bad" : sum.dot === "warn" ? (w.url.indexOf("/event/") >= 0 ? " b-warn" : " b-art") : "";
+    var ev0 = r && r.type === "event" && r.events && r.events[0];
+    var left = ev0 ? daysUntil(ev0.date) : null;
+    return '<div class="card slim' + band + (isOpen ? " expanded" : "") + '"><div class="row" data-toggle="' + esc(w.url) + '"><div class="t"><b>' + esc(w.name) + (sum.isNew ? '<span class="badge">NEU</span>' : "") + "</b><span>" + esc(sum.text) + (left != null ? ' · <span class="cd">noch ' + left + (left === 1 ? " Tag" : " Tage") + "</span>" : "") + '</span></div><span class="chev">›</span></div>' +
       (isOpen ? '<div class="detail">' + st + evs + (w.url.indexOf("/event/") >= 0 ? '<label class="cart"><input type="checkbox" class="ac" data-i="' + i + '"' + (w.autoCart ? " checked" : "") + '><span>🛒 Automatisch in den Warenkorb</span><select class="qty" data-i="' + i + '">' +
         [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((w.qty || 1) === n ? " selected" : "") + ">" + n + " Ticket" + (n > 1 ? "s" : "") + "</option>"; }).join("") + "</select></label>" +
         '<label class="cart"><span>💶 Höchstpreis pro Ticket (leer = egal)</span><input type="number" class="maxp" min="0" step="1" inputmode="decimal" data-i="' + i + '" value="' + (w.maxPrice || "") + '" placeholder="€"></label>' +
@@ -240,6 +273,49 @@ function render() {
       (r && r.detail ? '<p class="dbg">' + esc(r.detail) + "</p>" : "") + '<a class="open" href="#" data-url="' + esc(w.url) + '">In Kiwi öffnen ›</a><button class="x del" data-i="' + i + '">Entfernen</button><div style="clear:both"></div></div>' : "") + "</div>";
   }).join("") || '<div class="card"><p class="st">Noch kein Künstler – tippe unten rechts auf <b>+</b> und füge einen Eventim-Link ein.</p></div>';
 }
+
+function daysUntil(d) {
+  if (!d) return null;
+  var t = new Date(String(d).slice(0, 10) + "T00:00:00");
+  if (isNaN(t)) return null;
+  var n = Math.ceil((t - new Date()) / 86400000);
+  return n >= 0 ? n : null;
+}
+
+// Live-Anzeige oben: Schnellmodus mit Countdown bis zur nächsten Prüfung
+var live = { fast: false, next: 0, checking: false };
+function renderLive() {
+  var last = state.last;
+  $("livelast").textContent = last && last.time ? "zuletzt " + new Date(last.time).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "";
+  if (live.checking) { $("live").className = "live"; $("livetxt").innerHTML = "<b>Prüfe gerade …</b>"; return; }
+  if (live.fast) {
+    $("live").className = "live";
+    var sec = Math.round((live.next - Date.now()) / 1000);
+    $("livetxt").innerHTML = "<b>Schnellmodus</b> · " + (live.next && sec > 0 ? "nächste in " + Math.floor(sec / 60) + ":" + ("0" + sec % 60).slice(-2) : "prüft gleich");
+  } else {
+    $("live").className = "live off";
+    $("livetxt").textContent = "Prüft etwa alle 30 Minuten";
+  }
+}
+setInterval(renderLive, 1000);
+
+// Konfetti, wenn Tickets im Warenkorb gelandet sind
+function confetti() {
+  var c = document.createElement("div");
+  c.className = "confetti";
+  var colors = ["#f28c28", "#9d5cf0", "#3ccf7a", "#f0b03c", "#ffffff"];
+  for (var k = 0; k < 70; k++) {
+    var p = document.createElement("i");
+    p.style.left = Math.random() * 100 + "%";
+    p.style.background = colors[k % colors.length];
+    p.style.animationDelay = Math.random() * 0.7 + "s";
+    p.style.animationDuration = 2 + Math.random() * 1.4 + "s";
+    c.appendChild(p);
+  }
+  document.body.appendChild(c);
+  setTimeout(function () { c.remove(); }, 4500);
+}
+var lastHist = null;
 
 // Kurzfassung pro Eintrag für die kompakte Liste
 function summary(w, r) {
@@ -294,6 +370,11 @@ function load() {
     state.last = s.last || null;
     $("perm").hidden = !!s.notifications;
     $("fast").checked = !!s.fast;
+    live.fast = !!s.fast;
+    live.next = s.nextCheck || 0;
+    var newest = (s.history || [])[0] || "";
+    if (lastHist !== null && newest !== lastHist && newest.indexOf("im Warenkorb") >= 0) confetti();
+    lastHist = newest;
     showLogin(s.login);
     $("hist").innerHTML = (s.history || []).map(function (h) { return "<p>" + esc(h) + "</p>"; }).join("") || "<p>Noch nichts passiert.</p>";
     if (s.tgChat && !$("tgchat").value) $("tgchat").value = s.tgChat;
@@ -306,9 +387,14 @@ function load() {
 function check() {
   var b = $("check");
   b.disabled = true; b.textContent = "⏳ Prüfe …";
-  call("checkNow", {}, 180000).then(function (s) { state.last = s; return load(); })
+  live.checking = true; $("foxlogo").classList.add("spin"); renderLive();
+  call("checkNow", {}, 180000).then(function (s) {
+    state.last = s;
+    if ((s.results || []).some(function (r) { return r.cart && r.cart.inCart; })) { confetti(); lastHist = null; }
+    return load();
+  })
     .catch(function (e) { alertErr("Prüfen fehlgeschlagen: " + e.message); })
-    .then(function () { b.disabled = false; b.textContent = "🔍 Jetzt prüfen"; });
+    .then(function () { b.disabled = false; b.textContent = "🔍 Jetzt prüfen"; live.checking = false; $("foxlogo").classList.remove("spin"); renderLive(); });
 }
 
 function alertErr(t, info) { var e = $("err"); e.className = info ? "err info" : "err"; e.textContent = t; e.hidden = false; setTimeout(function () { e.hidden = true; }, 5000); }
@@ -363,7 +449,7 @@ $("list").onchange = function (ev) {
 };
 $("fast").onchange = function () {
   var on = this.checked;
-  call("setFastMode", { enabled: on }, 10000).then(function (r) { $("fast").checked = !!r.fast; })
+  call("setFastMode", { enabled: on }, 10000).then(function (r) { $("fast").checked = !!r.fast; live.fast = !!r.fast; live.next = 0; renderLive(); })
     .catch(function (e) { $("fast").checked = !on; alertErr(e.message); });
 };
 $("test").onclick = function () {

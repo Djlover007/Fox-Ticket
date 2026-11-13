@@ -95,6 +95,7 @@ public class FoxToolsPlugin extends Plugin {
             if (last != null) r.put("last", JSObject.fromJSONObject(last));
             r.put("notifications", TicketChecker.notificationsAllowed(getContext()));
             r.put("fast", FastCheckService.isEnabled(getContext()));
+            r.put("nextCheck", TicketChecker.prefs(getContext()).getLong("nextCheck", 0));
             r.put("cartLog", TicketChecker.prefs(getContext()).getString("cartLog", ""));
             r.put("login", JSObject.fromJSONObject(LoginManager.status(getContext())));
             r.put("history", new JSArray(TicketChecker.prefs(getContext()).getString("history", "[]")));

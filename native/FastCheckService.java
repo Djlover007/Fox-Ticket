@@ -47,7 +47,9 @@ public class FastCheckService extends Service {
             String time = new SimpleDateFormat("HH:mm", Locale.GERMANY).format(new Date());
             updateNotification("Zuletzt " + time + " Uhr · " + line);
             // leicht zufälliger Abstand (100–150 s), wirkt weniger wie ein Automat
-            handler.postDelayed(this, 100000 + new java.util.Random().nextInt(50000));
+            long wait = 100000 + new java.util.Random().nextInt(50000);
+            TicketChecker.prefs(FastCheckService.this).edit().putLong("nextCheck", System.currentTimeMillis() + wait).apply();
+            handler.postDelayed(this, wait);
         }
     };
 
